@@ -31,7 +31,7 @@
 %% IRC Command macros
 -define(PASS(Pwd), ?CMD(["PASS ",Pwd])).
 -define(NICK(Nick), ?CMD(["NICK ",Nick])).
--define(USER(Nick, Name), ?CMD(["USER ", Nick," 0 * :",Name])).
+-define(USER(User, Name), ?CMD(["USER ", User," 0 * :",Name])).
 -define(QUIT(Msg), ?CMD(["QUIT :", Msg])).
 
 %% Records

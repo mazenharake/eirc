@@ -35,7 +35,8 @@
 -export([init/5]).
 
 %% Records
--record(state, { server, port, nick, socket, ctrlpid, pass, name, rf = false }).
+-record(state, { server, port, nick, socket, ctrlpid, pass, name, user,
+		 rf = false }).
 
 %% =============================================================================
 %% Module API
@@ -60,6 +61,7 @@ init(Parent, Server, Port, Nick, Options) ->
 			 port = Port, rf = false,
 			 ctrlpid = gv(ctrlpid, Options, Parent),
 			 pass = gv(pass, Options, "NOPASS"),
+			 user = gv(user, Options, Nick),
 			 name = gv(name, Options, "eirc" ++ pid_to_list(self()))
 		       },
 	    init_connection(St);
@@ -72,13 +74,14 @@ init_connection(State) ->
     %% Just fire off and pray, we find out later if we failed or not
     self() ! {send, ?PASS(State#state.pass)},
     self() ! {send, ?NICK(State#state.nick)},
-    self() ! {send, ?USER(State#state.nick, State#state.name)},
+    self() ! {send, ?USER(State#state.user, State#state.name)},
     loop(State).
 
 loop(State) ->
     receive
 	{tcp, _Socket, Data} ->
-	    loop(handle_data(State, parse(Data)));
+	    Stripped = string:substr(Data,1,length(Data)-2),
+	    loop(handle_data(State, parse(Stripped)));
 	{send, Command} ->
 	    io:format("SEND: ~1000p ~n",[Command]),
 	    ok = gen_tcp:send(State#state.socket, Command),
@@ -92,7 +95,8 @@ loop(State) ->
 handle_data(#state{ rf = false } = State, #ircmsg{ cmd = 001 }) ->
     %% This means the initial commands where successful... we are registered!
     State#state{ rf = true };
-handle_data(_State, #ircmsg{ cmd = "QUIT" } = Msg) ->
+handle_data(State, #ircmsg{ cmd = "QUIT" } = Msg) ->
+    State#state.ctrlpid ! Msg,
     exit(normal);
 handle_data(State, Msg) ->
     State#state.ctrlpid ! Msg,
@@ -121,11 +125,11 @@ parsefrom(FromStr, Msg) ->
     case re:split(FromStr, "(!|@)",[{return, list}]) of
 	[Nick, "!", User, "@", Host] ->
 	    Msg#ircmsg{ nick = Nick, user = User, host = Host };
-	[Nick, "!", User] ->
-	    Msg#ircmsg{ nick = Nick, user = User };
 	[Nick, "@", Host] ->
 	    Msg#ircmsg{ nick = Nick, host = Host };
 	[Server] ->
+	    %% No nick detection... we are assuming it is the server here but it
+	    %% could just as well be a user nick
 	    Msg#ircmsg{ server = Server }
     end.
 
