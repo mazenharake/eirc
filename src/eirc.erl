@@ -26,13 +26,23 @@
 %% POSSIBILITY OF SUCH DAMAGE.
 
 -module(eirc).
+-include("eirc.hrl").
 
 %% Application API
--export([]).
+-export([connect/4, connect_link/4, disconnect/2]).
 
 %% =============================================================================
 %% Application API
 %% =============================================================================
+connect_link(Server, Port, Nick, Options) ->
+    eirc_cl:connect_link(Server, Port, Nick, Options).
+
+connect(Server, Port, Nick, Options) ->
+    eirc_cl:connect(Server, Port, Nick, Options).
+
+disconnect(Client, QuitMsg) ->
+    eirc_cl:disconnect(Client, QuitMsg).
+
 
 %% =============================================================================
 %% Internal Functions
