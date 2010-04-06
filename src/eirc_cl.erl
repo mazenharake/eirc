@@ -124,7 +124,9 @@ parsefrom(FromStr, Msg) ->
 	[Nick, "!", User] ->
 	    Msg#ircmsg{ nick = Nick, user = User };
 	[Nick, "@", Host] ->
-	    Msg#ircmsg{ nick = Nick, host = Host }
+	    Msg#ircmsg{ nick = Nick, host = Host };
+	[Server] ->
+	    Msg#ircmsg{ server = Server }
     end.
 
 getcmd([[A,B,C]|RestData], Msg) ->

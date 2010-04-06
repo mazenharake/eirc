@@ -35,4 +35,4 @@
 -define(QUIT(Msg), ?CMD(["QUIT :", Msg])).
 
 %% Records
--record(ircmsg, { nick, user, host, cmd, args = [] }).
+-record(ircmsg, { server, nick, user, host, cmd, args = [] }).
