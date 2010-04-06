@@ -29,7 +29,7 @@
 -include("eirc.hrl").
 
 %% Module API
--export([connect/4, connect_link/4]).
+-export([connect/4, connect_link/4, disconnect/2]).
 
 %% Private API
 -export([init/5]).
@@ -45,6 +45,9 @@ connect_link(Server, Port, Nick, Options) ->
 
 connect(Server, Port, Nick, Options) ->
     proc_lib:start(?MODULE, init, [self(), Server, Port, Nick, Options]).
+
+disconnect(Client, QuitMsg) ->
+    Client ! {send, ?QUIT(QuitMsg)}.
 
 %% =============================================================================
 %% Client Process Loop
@@ -90,10 +93,9 @@ handle_data(#state{ rf = false } = State, #ircmsg{ cmd = 001 }) ->
     %% This means the initial commands where successful... we are registered!
     State#state{ rf = true };
 handle_data(_State, #ircmsg{ cmd = "QUIT" } = Msg) ->
-    io:format("RECV: ~1000p ~n",[Msg]),
     exit(normal);
 handle_data(State, Msg) ->
-    io:format("RECV: ~1000p ~n",[Msg]),
+    State#state.ctrlpid ! Msg,
     State.
 
 
@@ -110,9 +112,19 @@ parse(Data) ->
     case Data of
 	[$:|_] ->
 	    [[$:|From]|RestData] = string:tokens(Data," "),
-	    getcmd(RestData, #ircmsg{ from = From });
+	    getcmd(RestData, parsefrom(From, #ircmsg{}));
 	Data ->
-	    getcmd(string:tokens(Data," "), #ircmsg{ from = undefined })
+	    getcmd(string:tokens(Data," "), #ircmsg{})
+    end.
+
+parsefrom(FromStr, Msg) ->
+    case re:split(FromStr, "(!|@)",[{return, list}]) of
+	[Nick, "!", User, "@", Host] ->
+	    Msg#ircmsg{ nick = Nick, user = User, host = Host };
+	[Nick, "!", User] ->
+	    Msg#ircmsg{ nick = Nick, user = User };
+	[Nick, "@", Host] ->
+	    Msg#ircmsg{ nick = Nick, host = Host }
     end.
 
 getcmd([[A,B,C]|RestData], Msg) ->
