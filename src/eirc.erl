@@ -62,6 +62,12 @@ notice(Client, Nick, Msg) ->
 cmd(Client, RawCmd) ->
     eirc_cl:cmd(Client, RawCmd).
 
+join(Client, Channel) ->
+    join(Client, Channel, "").
+
+join(Client, Channel, Key) ->
+    eirc_cl:join(Client, Channel, Key).
+
 quit(Client, QuitMsg) ->
     eirc_cl:quit(Client, QuitMsg).
 

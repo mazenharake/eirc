@@ -61,6 +61,9 @@ msg(Client, Type, Nick, Msg) ->
 cmd(Client, RawCmd) ->
     gen_server:call(Client, {cmd, RawCmd}).
 
+join(Client, Channel, Key) ->
+    gen_server:call(Client, {join, Channel, Key}, infinity).
+
 quit(Client, QuitMsg) ->
     gen_server:call(Client, {quit, QuitMsg}, infinity).
 
@@ -99,8 +102,12 @@ handle_call({msg, Type, Nick, Msg}, _From, State) ->
 		 end),
     {reply, ok, State};
 
+
 handle_call({cmd, RawCmd}, _From, State) ->
     gen_tcp:send(State#state.socket, ?CMD(RawCmd)),
+    {reply, ok, State};
+
+handle_call({join, Channel, Key}, _From, State) ->    
     {reply, ok, State};
 
 handle_call(_, _, State) ->
