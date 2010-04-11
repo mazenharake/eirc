@@ -31,8 +31,37 @@
 %% IRC Command macros
 -define(PASS(Pwd), ?CMD(["PASS ",Pwd])).
 -define(NICK(Nick), ?CMD(["NICK ",Nick])).
--define(USER(User, Name), ?CMD(["USER ", User," 0 * :",Name])).
--define(QUIT(Msg), ?CMD(["QUIT :", Msg])).
+-define(USER(User, Name), ?CMD(["USER ",User," 0 * :",Name])).
+-define(PONG1(Nick), ?CMD(["PONG ",Nick])).
+-define(PONG2(Nick, To), ?CMD(["PONG ",Nick," ",To])).
+-define(QUIT(Msg), ?CMD(["QUIT :",Msg])).
 
 %% Records
 -record(ircmsg, { server, nick, user, host, cmd, args = [] }).
+
+%% IRC Codes
+-define(RPL_WELCOME, "001").
+-define(RPL_YOURHOST, "002").
+-define(RPL_CREATED, "003").
+-define(RPL_MYINFO, "004").
+%% -define(RPL_BOUNCE, "005"). %% RFC2812
+-define(RPL_ISUPPORT, "005"). %% Defacto standard for server support
+-define(RPL_BOUNCE, "010"). %% Defacto replacement of "005" in RFC2812
+
+-define(ERR_NONICKNAMEGIVEN, "431").
+-define(ERR_ERRONEUSNICKNAME, "432").
+-define(ERR_NICKNAMEINUSE, "433").
+-define(ERR_NICKCOLLISION, "436").
+-define(ERR_UNAVAILRESOURCE, "437").
+
+-define(ERR_NEEDMOREPARAMS, "461").
+-define(ERR_ALREADYREGISTRED, "462").
+
+-define(ERR_RESTRICTED, "484").
+
+
+%% Code groups
+-define(LOGON_ERRORS, [?ERR_NONICKNAMEGIVEN, ?ERR_ERRONEUSNICKNAME,
+		       ?ERR_NICKNAMEINUSE, ?ERR_NICKCOLLISION,
+		       ?ERR_UNAVAILRESOURCE, ?ERR_NEEDMOREPARAMS,
+		       ?ERR_ALREADYREGISTRED, ?ERR_RESTRICTED]).

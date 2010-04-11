@@ -29,90 +29,142 @@
 -include("eirc.hrl").
 
 %% Module API
--export([connect/4, connect_link/4, disconnect/2]).
+%% -export([connect/4, connect_link/4, disconnect/2]).
+-compile(export_all).
 
 %% Private API
--export([init/5]).
+%% -export([init/1]).
 
 %% Records
--record(state, { server, port, nick, socket, ctrlpid, pass, name, user,
-		 rf = false }).
+-record(state, { event_receiver, server, port, socket, nick, pass, user, name, 
+		 logged_in, waiting, autoping }).
 
 %% =============================================================================
 %% Module API
 %% =============================================================================
-connect_link(Server, Port, Nick, Options) ->
-    proc_lib:start_link(?MODULE, init, [self(), Server, Port, Nick, Options]).
+start_link(Options) ->
+    gen_server:start_link(?MODULE, {self(), Options}, []).
 
-connect(Server, Port, Nick, Options) ->
-    proc_lib:start(?MODULE, init, [self(), Server, Port, Nick, Options]).
+connect(Client, Server, Port) ->
+    gen_server:call(Client, {connect, Server, Port}, infinity).
 
-disconnect(Client, QuitMsg) ->
-    Client ! {send, ?QUIT(QuitMsg)}.
+logon(Client, Pass, Nick, User, Name) ->
+    gen_server:call(Client, {logon, Pass, Nick, User, Name}, infinity).
+
+quit(Client, QuitMessage) ->
+    gen_server:call(Client, {quit, QuitMessage}).
+
 
 %% =============================================================================
-%% Client Process Loop
+%% Behaviour callback API
 %% =============================================================================
-init(Parent, Server, Port, Nick, Options) ->
+init({StarterPid, Options}) ->
+    EventPid = proplists:get_value(event_receiver, Options, StarterPid),
+    Autoping = proplists:get_value(autoping, Options, true),
+    {ok, #state{ event_receiver = EventPid, autoping = Autoping,
+		 logged_in = false }}.
+
+handle_call({connect, Server, Port}, _From, State) ->
     case gen_tcp:connect(Server, Port, [list, {packet, line}]) of
 	{ok, Socket} ->
-	    proc_lib:init_ack(Parent, {ok, self()}),
-	    St = #state{ socket = Socket, nick = Nick, server = Server,
-			 port = Port, rf = false,
-			 ctrlpid = gv(ctrlpid, Options, Parent),
-			 pass = gv(pass, Options, "NOPASS"),
-			 user = gv(user, Options, Nick),
-			 name = gv(name, Options, "eirc" ++ pid_to_list(self()))
-		       },
-	    init_connection(St);
-	{error, Reason} ->
-	    proc_lib:init_ack(Parent, {error, Reason})
-    end.
+	    {reply, ok, State#state{ server = Server, port = Port, 
+				     socket = Socket } };
+	Error ->
+	    {reply, Error, State}
+    end;
+handle_call({logon, Pass, Nick, User, Name}, From, State) ->
+    gen_tcp:send(State#state.socket, ?PASS(Pass)),
+    gen_tcp:send(State#state.socket, ?NICK(Nick)),
+    gen_tcp:send(State#state.socket, ?USER(User, Name)),
+    {noreply, State#state{ pass = Pass, nick = Nick, user = User,
+			   name = Name, waiting = From }};
+handle_call({quit, QuitMessage}, _From, State) ->
+    gen_tcp:send(State#state.socket, ?QUIT(QuitMessage)),
+    {noreply, State};
+handle_call(_, _, State) ->
+    {reply, ok, State}.
 
-init_connection(State) ->
-    %% What a stupid protocol... we won't get an individual response here.
-    %% Just fire off and pray, we find out later if we failed or not
-    self() ! {send, ?PASS(State#state.pass)},
-    self() ! {send, ?NICK(State#state.nick)},
-    self() ! {send, ?USER(State#state.user, State#state.name)},
-    loop(State).
+handle_info({tcp_closed, Socket}, State) ->
+    {stop, {tcp_closed, Socket}, State};
+handle_info({tcp_error, Socket}, State) ->
+    {stop, {tcp_error, Socket}, State};
+handle_info({tcp, _, Data}, State) ->
+    Msg = parse(Data),
+    send_event(Msg, State),
+    handle_data(Msg, State);
+handle_info(_, State) ->
+    {noreply, State}.
 
-loop(State) ->
-    receive
-	{tcp, _Socket, Data} ->
-	    Stripped = string:substr(Data,1,length(Data)-2),
-	    loop(handle_data(State, parse(Stripped)));
-	{send, Command} ->
-	    io:format("SEND: ~1000p ~n",[Command]),
-	    ok = gen_tcp:send(State#state.socket, Command),
-	    loop(State);
-	{tcp_closed, _Socket} ->
-	    exit({disconnected, undefined});
-	{tcp_error, _Socket, Reason} ->
-	    exit({disconnected, Reason})
-    end.
+terminate(_Reason, _State) ->
+    ok.
 
-handle_data(#state{ rf = false } = State, #ircmsg{ cmd = 001 }) ->
-    %% This means the initial commands where successful... we are registered!
-    State#state{ rf = true };
-handle_data(State, #ircmsg{ cmd = "QUIT" } = Msg) ->
-    State#state.ctrlpid ! Msg,
-    exit(normal);
-handle_data(State, Msg) ->
-    State#state.ctrlpid ! Msg,
-    State.
+handle_cast(_Cast, State) ->
+    {noreply, State}.
 
+code_change(_Old, State, _Extra) ->
+    {ok, State}.
 
 %% =============================================================================
-%% Internal Functions
+%% Data handling logic
 %% =============================================================================
+%% Message before we sent the PASS, NICK, USER (PNU) combo
+handle_data(_Msg, #state{ logged_in = false, waiting = undefined } = State) ->
+    {noreply, State};
+
+%% MOTD after PNU was sent = successful
+handle_data(#ircmsg{ cmd = ?RPL_WELCOME },
+	    #state{ logged_in = false } = State) ->
+    gen_server:reply(State#state.waiting, ok),
+    {noreply, State#state{ logged_in = true, waiting = undefined }};
+
+%% Possible PNU error _or_ a Message in between
+handle_data(#ircmsg{ cmd = Cmd } = Msg,
+	    #state{ logged_in = false } = State) ->
+    case lists:member(Cmd, ?LOGON_ERRORS) of
+	true ->
+	    gen_server:reply(State#state.waiting, {error, Msg}),
+	    {noreply, State#state{ waiting = undefined, logged_in = false }};
+	false ->
+	    {noreply, State}
+    end;
+
+%% We got a ping, reply if autoping is on.
+handle_data(#ircmsg{ cmd = "PING" } = Msg, #state{ autoping = true } = State) ->
+    case Msg of
+	#ircmsg{ args = [From] } ->
+	    gen_tcp:send(State#state.socket, ?PONG2(State#state.nick, From));
+	_ ->
+	    gen_tcp:send(State#state.socket, ?PONG1(State#state.nick))
+    end,
+    {noreply, State};
+
+
+
+%% "catch-all" while logged in
+handle_data(_Msg, #state{ logged_in = true } = State) ->
+    {noreply, State};
+
+%% "catch-all", period. (DEV)
+handle_data(_Msg, State) ->
+    {noreply, State}.
+
+%% =============================================================================
+%% Internal functions
+%% =============================================================================
+send_event(_Msg, #state{ event_receiver = undefined }) -> ok;
+send_event(Msg, #state{ event_receiver = EventPid }) when is_pid(EventPid) ->
+    EventPid ! Msg;
+send_event(Msg, #state{ event_receiver = EventMod }) when is_atom(EventMod) ->
+    EventMod:handle_event(Msg).
+
 gv(Key, Options) -> proplists:get_value(Key, Options).
 gv(Key, Options, Default) -> proplists:get_value(Key, Options, Default).
 
 %% =============================================================================
 %% IRC message parse
 %% =============================================================================
-parse(Data) ->
+parse(UnstrippedData) ->
+    Data = string:substr(UnstrippedData,1,length(UnstrippedData)-2),
     case Data of
 	[$:|_] ->
 	    [[$:|From]|RestData] = string:tokens(Data," "),
@@ -129,13 +181,10 @@ parsefrom(FromStr, Msg) ->
 	    Msg#ircmsg{ nick = Nick, host = Host };
 	[Server] ->
 	    %% No nick detection... we are assuming it is the server here but it
-	    %% could just as well be a user nick
+	    %% could just as well be a user nick (let someone else decide)
 	    Msg#ircmsg{ server = Server }
     end.
 
-getcmd([[A,B,C]|RestData], Msg) ->
-    Cmd = try list_to_integer([A,B,C]) catch error:badarg -> [A,B,C] end,
-    getargs(RestData, Msg#ircmsg{ cmd = Cmd });
 getcmd([Cmd|RestData], Msg) ->
     getargs(RestData, Msg#ircmsg{ cmd = Cmd }).
 
@@ -144,15 +193,11 @@ getargs([], Msg) ->
 getargs([[$:|FirstArg]|RestArgs], Msg) ->
     case lists:flatten([" "++Arg||Arg<-[FirstArg|RestArgs]]) of
 	[_|[]] ->
-	    getargs([], Msg);
+	    getargs([], Msg#ircmsg{ args = [""|Msg#ircmsg.args] });
 	[_|FullTrail] ->
 	    getargs([], Msg#ircmsg{ args = [FullTrail|Msg#ircmsg.args] })
     end;
+getargs([Arg|[]], Msg) ->
+    getargs([], Msg#ircmsg{ args = ["",Arg|Msg#ircmsg.args] });
 getargs([Arg|RestData], Msg) ->
     getargs(RestData, Msg#ircmsg{ args = [Arg|Msg#ircmsg.args] }).
-
-    
-
-
-
-

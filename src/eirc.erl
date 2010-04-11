@@ -29,19 +29,33 @@
 -include("eirc.hrl").
 
 %% Application API
--export([connect/4, connect_link/4, disconnect/2]).
+%% -export([connect/4, connect_link/4, disconnect/2]).
+-compile(export_all).
 
 %% =============================================================================
 %% Application API
 %% =============================================================================
-connect_link(Server, Port, Nick, Options) ->
-    eirc_cl:connect_link(Server, Port, Nick, Options).
+start_link() ->
+    start_link([]).
 
-connect(Server, Port, Nick, Options) ->
-    eirc_cl:connect(Server, Port, Nick, Options).
+start_link(Options) ->
+    eirc_cl:start_link(Options).
 
-disconnect(Client, QuitMsg) ->
-    eirc_cl:disconnect(Client, QuitMsg).
+connect(Client, Server, Port) ->
+    eirc_cl:connect(Client, Server, Port).
+
+logon(Client, Pass, Nick, User, Name) ->
+    eirc_cl:logon(Client, Pass, Nick, User, Name).
+
+quit(Client, QuitMessage) ->
+    eirc_cl:quit(Client, QuitMessage).
+
+
+
+
+
+
+
 
 
 %% =============================================================================
