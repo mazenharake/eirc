@@ -37,11 +37,15 @@
 
 %% Records
 -record(state, { event_receiver, server, port, socket, nick, pass, user, name, 
-		 logged_in, waiting, autoping }).
+		 logged_in, waiting, autoping, chprefix, network, usrprefix,
+		 login_time }).
 
 %% =============================================================================
 %% Module API
 %% =============================================================================
+start(Options) ->
+    gen_server:start(?MODULE, {self(), Options}, []).
+
 start_link(Options) ->
     gen_server:start_link(?MODULE, {self(), Options}, []).
 
@@ -53,7 +57,6 @@ logon(Client, Pass, Nick, User, Name) ->
 
 quit(Client, QuitMessage) ->
     gen_server:call(Client, {quit, QuitMessage}).
-
 
 %% =============================================================================
 %% Behaviour callback API
@@ -84,8 +87,8 @@ handle_call({quit, QuitMessage}, _From, State) ->
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
-handle_info({tcp_closed, Socket}, State) ->
-    {stop, {tcp_closed, Socket}, State};
+handle_info({tcp_closed, _Socket}, State) ->
+    {stop, normal, State};
 handle_info({tcp_error, Socket}, State) ->
     {stop, {tcp_error, Socket}, State};
 handle_info({tcp, _, Data}, State) ->
@@ -115,7 +118,11 @@ handle_data(_Msg, #state{ logged_in = false, waiting = undefined } = State) ->
 handle_data(#ircmsg{ cmd = ?RPL_WELCOME },
 	    #state{ logged_in = false } = State) ->
     gen_server:reply(State#state.waiting, ok),
-    {noreply, State#state{ logged_in = true, waiting = undefined }};
+    {noreply, State#state{ logged_in = true, waiting = undefined,
+			   login_time = erlang:now() }};
+
+handle_data(#ircmsg{ cmd = ?RPL_ISUPPORT } = Msg, State) ->
+    {noreply, isup(Msg#ircmsg.args, State)};
 
 %% Possible PNU error _or_ a Message in between
 handle_data(#ircmsg{ cmd = Cmd } = Msg,
@@ -161,7 +168,7 @@ gv(Key, Options) -> proplists:get_value(Key, Options).
 gv(Key, Options, Default) -> proplists:get_value(Key, Options, Default).
 
 %% =============================================================================
-%% IRC message parse
+%% Generic IRC message parse
 %% =============================================================================
 parse(UnstrippedData) ->
     Data = string:substr(UnstrippedData,1,length(UnstrippedData)-2),
@@ -201,3 +208,23 @@ getargs([Arg|[]], Msg) ->
     getargs([], Msg#ircmsg{ args = ["",Arg|Msg#ircmsg.args] });
 getargs([Arg|RestData], Msg) ->
     getargs(RestData, Msg#ircmsg{ args = [Arg|Msg#ircmsg.args] }).
+
+%% =============================================================================
+%% RPL_ISUPPORT (005) parse
+%% =============================================================================
+isup([], State) -> State;
+isup([Param|Rest], State) ->
+    try	isup(Rest, isup_param(Param, State))
+    catch _:_ -> isup(Rest, State) end.
+
+isup_param("CHANTYPES="++ChanPrefixes, State) ->
+    State#state{ chprefix = ChanPrefixes };
+isup_param("NETWORK="++Network, State) ->
+    State#state{ network = Network };
+isup_param("PREFIX="++UserPrefixes, State) ->
+    {match,[{P1,L1},{P2,L2}]} = 
+	re:run(UserPrefixes, "\\((.*)\\)(.*)", [{capture, all_but_first}]),
+    State#state{ usrprefix = lists:zip(string:substr(UserPrefixes,P1+1,L1),
+				       string:substr(UserPrefixes,P2+1,L2)) };
+isup_param(_, State) ->
+    State.
