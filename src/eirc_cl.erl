@@ -55,8 +55,11 @@ connect(Client, Server, Port) ->
 logon(Client, Pass, Nick, User, Name) ->
     gen_server:call(Client, {logon, Pass, Nick, User, Name}, infinity).
 
-quit(Client, QuitMessage) ->
-    gen_server:call(Client, {quit, QuitMessage}).
+msg(Client, Type, Nick, Msg) ->
+    gen_server:call(Client, {msg, Type, Nick, Msg}, infinity).
+
+quit(Client, QuitMsg) ->
+    gen_server:call(Client, {quit, QuitMsg}, infinity).
 
 %% =============================================================================
 %% Behaviour callback API
@@ -81,9 +84,18 @@ handle_call({logon, Pass, Nick, User, Name}, From, State) ->
     gen_tcp:send(State#state.socket, ?USER(User, Name)),
     {noreply, State#state{ pass = Pass, nick = Nick, user = User,
 			   name = Name, waiting = From }};
-handle_call({quit, QuitMessage}, _From, State) ->
-    gen_tcp:send(State#state.socket, ?QUIT(QuitMessage)),
+handle_call({quit, QuitMsg}, _From, State) ->
+    gen_tcp:send(State#state.socket, ?QUIT(QuitMsg)),
     {noreply, State};
+
+handle_call({msg, Type, Nick, Msg}, _From, State) ->
+    gen_tcp:send(State#state.socket, 
+		 case Type of
+		     privmsg -> ?PRIVMSG(Nick, Msg);
+		     notice -> ?NOTICE(Nick, Msg)
+		 end),
+    {reply, ok, State};
+
 handle_call(_, _, State) ->
     {reply, ok, State}.
 

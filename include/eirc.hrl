@@ -34,6 +34,8 @@
 -define(USER(User, Name), ?CMD(["USER ",User," 0 * :",Name])).
 -define(PONG1(Nick), ?CMD(["PONG ",Nick])).
 -define(PONG2(Nick, To), ?CMD(["PONG ",Nick," ",To])).
+-define(PRIVMSG(Nick, Msg), ?CMD(["PRIVMSG ",Nick," :",Msg])).
+-define(NOTICE(Nick, Msg), ?CMD(["NOTICE ",Nick," :",Msg])).
 -define(QUIT(Msg), ?CMD(["QUIT :",Msg])).
 
 %% Records

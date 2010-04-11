@@ -53,16 +53,14 @@ connect(Client, Server, Port) ->
 logon(Client, Pass, Nick, User, Name) ->
     eirc_cl:logon(Client, Pass, Nick, User, Name).
 
-quit(Client, QuitMessage) ->
-    eirc_cl:quit(Client, QuitMessage).
+privmsg(Client, Nick, Msg) ->
+    eirc_cl:msg(Client, privmsg, Nick, Msg).
 
+notice(Client, Nick, Msg) ->
+    eirc_cl:msg(Client, notice, Nick, Msg).
 
-
-
-
-
-
-
+quit(Client, QuitMsg) ->
+    eirc_cl:quit(Client, QuitMsg).
 
 %% =============================================================================
 %% Internal Functions
