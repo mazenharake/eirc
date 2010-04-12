@@ -37,8 +37,8 @@
 
 %% Records
 -record(state, { event_receiver, server, port, socket, nick, pass, user, name, 
-		 logged_in, waiting, autoping, chprefix, network, usrprefix,
-		 login_time }).
+		 logged_in, autoping, chprefix, network, usrprefix,
+		 login_time, channels, pending }).
 
 %% =============================================================================
 %% Module API
@@ -76,6 +76,7 @@ init({StarterPid, Options}) ->
     {ok, #state{ event_receiver = EventPid, autoping = Autoping,
 		 logged_in = false }}.
 
+
 handle_call({connect, Server, Port}, _From, State) ->
     case gen_tcp:connect(Server, Port, [list, {packet, line}]) of
 	{ok, Socket} ->
@@ -84,15 +85,25 @@ handle_call({connect, Server, Port}, _From, State) ->
 	Error ->
 	    {reply, Error, State}
     end;
-handle_call({logon, Pass, Nick, User, Name}, From, State) ->
+
+handle_call({logon, Pass, Nick, User, Name}, From, 
+	    #state{ pending = undefined } = State) ->
     gen_tcp:send(State#state.socket, ?PASS(Pass)),
     gen_tcp:send(State#state.socket, ?NICK(Nick)),
     gen_tcp:send(State#state.socket, ?USER(User, Name)),
     {noreply, State#state{ pass = Pass, nick = Nick, user = User,
-			   name = Name, waiting = From }};
-handle_call({quit, QuitMsg}, _From, State) ->
+			   name = Name, pending = From }};
+
+handle_call({quit, QuitMsg}, From, State) ->
     gen_tcp:send(State#state.socket, ?QUIT(QuitMsg)),
-    {noreply, State};
+    {noreply, State#state{ pending = From }};
+
+handle_call({cmd, RawCmd}, _From, State) ->
+    gen_tcp:send(State#state.socket, ?CMD(RawCmd)),
+    {reply, ok, State};
+
+handle_call(_Call, _From, #state{ logged_in = false } = State) ->
+    {reply, {error, not_logged_in}, State};
 
 handle_call({msg, Type, Nick, Msg}, _From, State) ->
     gen_tcp:send(State#state.socket, 
@@ -103,11 +114,7 @@ handle_call({msg, Type, Nick, Msg}, _From, State) ->
     {reply, ok, State};
 
 
-handle_call({cmd, RawCmd}, _From, State) ->
-    gen_tcp:send(State#state.socket, ?CMD(RawCmd)),
-    {reply, ok, State};
-
-handle_call({join, Channel, Key}, _From, State) ->    
+handle_call({join, Channel, Key}, _From, State) ->
     {reply, ok, State};
 
 handle_call(_, _, State) ->
@@ -115,20 +122,26 @@ handle_call(_, _, State) ->
 
 handle_info({tcp_closed, _Socket}, State) ->
     {stop, normal, State};
+
 handle_info({tcp_error, Socket}, State) ->
     {stop, {tcp_error, Socket}, State};
+
 handle_info({tcp, _, Data}, State) ->
     Msg = parse(Data),
     send_event(Msg, State),
     handle_data(Msg, State);
+
 handle_info(_, State) ->
     {noreply, State}.
+
 
 terminate(_Reason, _State) ->
     ok.
 
+
 handle_cast(_Cast, State) ->
     {noreply, State}.
+
 
 code_change(_Old, State, _Extra) ->
     {ok, State}.
@@ -136,15 +149,12 @@ code_change(_Old, State, _Extra) ->
 %% =============================================================================
 %% Data handling logic
 %% =============================================================================
-%% Message before we sent the PASS, NICK, USER (PNU) combo
-handle_data(_Msg, #state{ logged_in = false, waiting = undefined } = State) ->
-    {noreply, State};
-
 %% MOTD after PNU was sent = successful
 handle_data(#ircmsg{ cmd = ?RPL_WELCOME },
 	    #state{ logged_in = false } = State) ->
-    gen_server:reply(State#state.waiting, ok),
-    {noreply, State#state{ logged_in = true, waiting = undefined,
+    gen_server:reply(State#state.pending, ok),
+    {noreply, State#state{ logged_in = true, 
+			   pending = undefined,
 			   login_time = erlang:now() }};
 
 handle_data(#ircmsg{ cmd = ?RPL_ISUPPORT } = Msg, State) ->
@@ -155,9 +165,10 @@ handle_data(#ircmsg{ cmd = Cmd } = Msg,
 	    #state{ logged_in = false } = State) ->
     case lists:member(Cmd, ?LOGON_ERRORS) of
 	true ->
-	    gen_server:reply(State#state.waiting, {error, Msg}),
-	    {noreply, State#state{ waiting = undefined, logged_in = false }};
+	    gen_server:reply(State#state.pending, {error, Msg}),
+	    {noreply, State#state{ pending = undefined }};
 	false ->
+	    %% E.g. NOTICE coming in during login. Take no action.
 	    {noreply, State}
     end;
 
@@ -171,11 +182,9 @@ handle_data(#ircmsg{ cmd = "PING" } = Msg, #state{ autoping = true } = State) ->
     end,
     {noreply, State};
 
-
-
-%% "catch-all" while logged in
-handle_data(_Msg, #state{ logged_in = true } = State) ->
-    {noreply, State};
+handle_data(#ircmsg{ cmd = "ERROR", args = ["Closing Link"++_] }, State) ->
+    gen_server:reply(State#state.pending, ok),
+    {stop, normal, State};
 
 %% "catch-all", period. (DEV)
 handle_data(_Msg, State) ->
@@ -192,6 +201,8 @@ send_event(Msg, #state{ event_receiver = EventMod }) when is_atom(EventMod) ->
 
 gv(Key, Options) -> proplists:get_value(Key, Options).
 gv(Key, Options, Default) -> proplists:get_value(Key, Options, Default).
+
+dv(Key, Options) -> lists:keydelete(Key,1,Options).
 
 %% =============================================================================
 %% Generic IRC message parse
