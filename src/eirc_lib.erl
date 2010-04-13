@@ -58,7 +58,7 @@ parsefrom(FromStr, Msg) ->
 getcmd([Cmd,Arg1,[$:,1|CTCPTrail]|RestArgs], Msg) when Cmd == "PRIVMSG"; 
 						       Cmd == "NOTICE" ->
     getcmd([Cmd,Arg1,[1|CTCPTrail]|RestArgs], Msg);
-getcmd([Cmd,Arg1,[1|CTCPTrail]|RestArgs], Msg) when Cmd == "PRIVMSG"; 
+getcmd([Cmd,_Arg1,[1|CTCPTrail]|RestArgs], Msg) when Cmd == "PRIVMSG"; 
 						    Cmd == "NOTICE" ->
     case lists:reverse(lists:flatten(CTCPTrail++[" "++Arg||Arg<-RestArgs])) of
 	[1|CTCPRev] ->

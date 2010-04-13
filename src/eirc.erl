@@ -53,9 +53,6 @@ connect(Client, Server, Port) ->
 logon(Client, Pass, Nick, User, Name) ->
     eirc_cl:logon(Client, Pass, Nick, User, Name).
 
-is_logged_in(Client) ->
-    eirc_cl:is_logged_in(Client).
-
 privmsg(Client, Nick, Msg) ->
     eirc_cl:msg(Client, privmsg, Nick, Msg).
 
@@ -73,6 +70,15 @@ join(Client, Channel, Key) ->
 
 quit(Client, QuitMsg) ->
     eirc_cl:quit(Client, QuitMsg).
+
+is_logged_on(Client) ->
+    eirc_cl:is_logged_on(Client).
+
+channels(Client) ->
+    eirc_cl:channels(Client).
+
+chan_users(Client, ChanName) ->
+    eirc_cl:chan_users(Client, ChanName).
 
 %% =============================================================================
 %% Internal Functions

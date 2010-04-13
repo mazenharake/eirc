@@ -45,9 +45,6 @@ connect(Client, Server, Port) ->
 logon(Client, Pass, Nick, User, Name) ->
     gen_server:call(Client, {logon, Pass, Nick, User, Name}, infinity).
 
-is_logged_in(Client) ->
-    gen_server:call(Client, is_logged_in).
-
 msg(Client, Type, Nick, Msg) ->
     gen_server:call(Client, {msg, Type, Nick, Msg}, infinity).
 
@@ -60,6 +57,15 @@ join(Client, Channel, Key) ->
 quit(Client, QuitMsg) ->
     gen_server:call(Client, {quit, QuitMsg}, infinity).
 
+is_logged_on(Client) ->
+    gen_server:call(Client, is_logged_on).
+
+channels(Client) ->
+    gen_server:call(Client, channels).
+
+chan_users(Client, ChanName) ->
+    gen_server:call(Client, {chan_users, ChanName}).
+
 %% =============================================================================
 %% Behaviour callback API
 %% =============================================================================
@@ -69,7 +75,8 @@ init({StarterPid, Options}) ->
     Autoping = proplists:get_value(autoping, Options, true),
     Debug = proplists:get_value(debug, Options, false),
     {ok, #state{ event_receiver = EventPid, autoping = Autoping,
-		 logged_in = false, debug = Debug }}.
+		 logged_on = false, debug = Debug, 
+		 channels = eirc_chan:init() }}.
 
 %% CALLS
 handle_call({connect, Server, Port}, _From, State) ->
@@ -82,7 +89,7 @@ handle_call({connect, Server, Port}, _From, State) ->
     end;
 
 handle_call({logon, Pass, Nick, User, Name}, _From, 
-	    #state{ logged_in = false } = State) ->
+	    #state{ logged_on = false } = State) ->
     gen_tcp:send(State#state.socket, ?PASS(Pass)),
     gen_tcp:send(State#state.socket, ?NICK(Nick)),
     gen_tcp:send(State#state.socket, ?USER(User, Name)),
@@ -102,14 +109,21 @@ handle_call({msg, Type, Nick, Msg}, _From, State) ->
     {reply, ok, State};
 
 handle_call({join, Channel, Key}, _From, State) ->
+    gen_tcp:send(State#state.socket, ?JOIN(Channel, Key)),
     {reply, ok, State};
 
 handle_call({cmd, RawCmd}, _From, State) ->
     gen_tcp:send(State#state.socket, ?CMD(RawCmd)),
     {reply, ok, State};
 
-handle_call(is_logged_in, _From, State) ->
-    {reply, State#state.logged_in, State};
+handle_call(is_logged_on, _From, State) ->
+    {reply, State#state.logged_on, State};
+
+handle_call(channels, _From, State) ->
+    {reply, eirc_chan:channels(State#state.channels), State};
+
+handle_call({chan_users, ChanName}, _From, State) ->
+    {reply, eirc_chan:chan_users(State#state.channels, ChanName), State};
 
 handle_call(_, _, State) ->
     {reply, ok, State}.
@@ -154,15 +168,40 @@ code_change(_Old, State, _Extra) ->
 %% =============================================================================
 %% Data handling logic
 %% =============================================================================
-%% MOTD after PNU was sent = successful
+%% Sucessfully logged in
 handle_data(#ircmsg{ cmd = ?RPL_WELCOME },
-	    #state{ logged_in = false } = State) ->
-    {noreply, State#state{ logged_in = true, 
+	    #state{ logged_on = false } = State) ->
+    {noreply, State#state{ logged_on = true, 
 			   login_time = erlang:now() }};
 
+%% Server capabilities
 handle_data(#ircmsg{ cmd = ?RPL_ISUPPORT } = Msg, State) ->
     {noreply, eirc_lib:isup(Msg#ircmsg.args, State)};
 
+%% We entered a channel
+handle_data(#ircmsg{ nick = Nick, cmd = "JOIN" } = Msg,
+	    #state{ nick = Nick } = State) ->
+    Channels = eirc_chan:join(State#state.channels, hd(Msg#ircmsg.args)),
+    {noreply, State#state{ channels = Channels }};
+
+%% We left a channel
+handle_data(#ircmsg{ nick = Nick, cmd = "PART" } = Msg,
+	    #state{ nick = Nick } = State) ->
+    Channels = eirc_chan:part(State#state.channels, hd(Msg#ircmsg.args)),
+    {noreply, State#state{ channels = Channels }};
+
+%% Someone joined a channel we are in
+handle_data(#ircmsg{ nick = UserNick, cmd = "JOIN"} = Msg, State) ->
+    Channels = eirc_chan:user_join(State#state.channels, hd(Msg#ircmsg.args),
+				   UserNick),
+    {noreply, State#state{ channels = Channels }};
+
+%% Someone left a channel we are in
+handle_data(#ircmsg{ nick = UserNick, cmd = "PART" } = Msg, State) ->
+    Channels = eirc_chan:user_part(State#state.channels, hd(Msg#ircmsg.args),
+				   UserNick),
+    {noreply, State#state{ channels = Channels }};
+    
 %% We got a ping, reply if autoping is on.
 handle_data(#ircmsg{ cmd = "PING" } = Msg, #state{ autoping = true } = State) ->
     case Msg of

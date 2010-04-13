@@ -27,7 +27,7 @@
 
 %% Records
 -record(state, { event_receiver, server, port, socket, nick, pass, user, name, 
-		 logged_in, autoping, chprefix, network, usrprefix,
+		 logged_on, autoping, chprefix, network, usrprefix,
 		 login_time, channels, debug }).
 -record(ircmsg, { server, nick, user, host, ctcp, cmd, args = [] }).
 
@@ -44,6 +44,7 @@
 -define(PONG2(Nick, To), ?CMD(["PONG ",Nick," ",To])).
 -define(PRIVMSG(Nick, Msg), ?CMD(["PRIVMSG ",Nick," :",Msg])).
 -define(NOTICE(Nick, Msg), ?CMD(["NOTICE ",Nick," :",Msg])).
+-define(JOIN(Chan, Key), ?CMD(["JOIN ",Chan," ",Key])).
 -define(QUIT(Msg), ?CMD(["QUIT :",Msg])).
 
 %% CTCP Responses
