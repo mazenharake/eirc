@@ -38,9 +38,9 @@ parse(UnstrippedData) ->
     case Data of
 	[$:|_] ->
 	    [[$:|From]|RestData] = string:tokens(Data," "),
-	    getcmd(RestData, parsefrom(From, #ircmsg{}));
+	    getcmd(RestData, parsefrom(From, #ircmsg{ ctcp = false }));
 	Data ->
-	    getcmd(string:tokens(Data," "), #ircmsg{})
+	    getcmd(string:tokens(Data," "), #ircmsg{ ctcp = false })
     end.
 
 parsefrom(FromStr, Msg) ->
@@ -55,6 +55,19 @@ parsefrom(FromStr, Msg) ->
 	    Msg#ircmsg{ server = Server }
     end.
 
+getcmd([Cmd,Arg1,[$:,1|CTCPTrail]|RestArgs], Msg) when Cmd == "PRIVMSG"; 
+						       Cmd == "NOTICE" ->
+    getcmd([Cmd,Arg1,[1|CTCPTrail]|RestArgs], Msg);
+getcmd([Cmd,Arg1,[1|CTCPTrail]|RestArgs], Msg) when Cmd == "PRIVMSG"; 
+						    Cmd == "NOTICE" ->
+    case lists:reverse(lists:flatten(CTCPTrail++[" "++Arg||Arg<-RestArgs])) of
+	[1|CTCPRev] ->
+	    [CTCPCmd|Args] = string:tokens(lists:reverse(CTCPRev)," "),
+	    Msg#ircmsg{ cmd = CTCPCmd, args = Args, ctcp = true };
+	Str ->
+	    io:format("ERROR: ~1000p~n",[Str]),
+	    Msg#ircmsg{ cmd = Cmd, ctcp = invalid }
+    end;
 getcmd([Cmd|RestData], Msg) ->
     getargs(RestData, Msg#ircmsg{ cmd = Cmd }).
 

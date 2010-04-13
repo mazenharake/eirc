@@ -67,8 +67,9 @@ quit(Client, QuitMsg) ->
 init({StarterPid, Options}) ->
     EventPid = proplists:get_value(event_receiver, Options, StarterPid),
     Autoping = proplists:get_value(autoping, Options, true),
+    Debug = proplists:get_value(debug, Options, false),
     {ok, #state{ event_receiver = EventPid, autoping = Autoping,
-		 logged_in = false }}.
+		 logged_in = false, debug = Debug }}.
 
 %% CALLS
 handle_call({connect, Server, Port}, _From, State) ->
@@ -125,9 +126,19 @@ handle_info({tcp_error, Socket}, State) ->
     {stop, {tcp_error, Socket}, State};
 
 handle_info({tcp, _, Data}, State) ->
-    Msg = eirc_lib:parse(Data),
-    send_event(Msg, State),
-    handle_data(Msg, State);
+    case eirc_lib:parse(Data) of
+	#ircmsg{ ctcp = true } = Msg ->
+	    send_event(Msg, State),
+	    handle_ctcp(Msg, State);
+	#ircmsg{ ctcp = false } = Msg ->
+	    send_event(Msg, State),
+	    handle_data(Msg, State);
+	#ircmsg{ ctcp = invalid } = Msg when State#state.debug == true ->
+	    send_event(Msg, State),
+	    {noreply, State};
+	_ ->
+	    {noreply, State}
+    end;
 
 handle_info(_, State) ->
     {noreply, State}.
@@ -151,17 +162,6 @@ handle_data(#ircmsg{ cmd = ?RPL_WELCOME },
 
 handle_data(#ircmsg{ cmd = ?RPL_ISUPPORT } = Msg, State) ->
     {noreply, eirc_lib:isup(Msg#ircmsg.args, State)};
-
-%% CTCP request
-handle_data(#ircmsg{ cmd = "PRIVMSG", args = [_,[1|CTCP]|Arg] } = Msg, State) ->
-    case lists:reverse(CTCP) of
-	[1|CTCPRev] -> 
-	    handle_ctcp(Msg#ircmsg{ cmd = lists:reverse(CTCPRev), 
-				    args = string:tokens(Arg," ") }, State);
-	_ ->
-	    %% invalid ctcp
-	    {noreply, State}
-    end;
 
 %% We got a ping, reply if autoping is on.
 handle_data(#ircmsg{ cmd = "PING" } = Msg, #state{ autoping = true } = State) ->
@@ -192,7 +192,8 @@ handle_ctcp(#ircmsg{ cmd = "TIME" } = Msg, State) ->
 					     ?RPL_CTCP_TIME)), 
     {noreply, State};
 handle_ctcp(#ircmsg{ cmd = "PING", args = [Timestamp] } = Msg, State) ->
-    gen_tcp:send(State#state.socket, ?RPL_CTCP_PING(Timestamp)),
+    gen_tcp:send(State#state.socket, ?NOTICE(Msg#ircmsg.nick,
+					     ?RPL_CTCP_PING(Timestamp))),
     {noreply, State};
 handle_ctcp(_Msg, State) ->
     {noreply, State}.

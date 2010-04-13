@@ -28,7 +28,7 @@
 %% Records
 -record(state, { event_receiver, server, port, socket, nick, pass, user, name, 
 		 logged_in, autoping, chprefix, network, usrprefix,
-		 login_time, channels }).
+		 login_time, channels, debug }).
 -record(ircmsg, { server, nick, user, host, ctcp, cmd, args = [] }).
 
 %% Helpers
