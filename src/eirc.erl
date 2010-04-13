@@ -53,6 +53,9 @@ connect(Client, Server, Port) ->
 logon(Client, Pass, Nick, User, Name) ->
     eirc_cl:logon(Client, Pass, Nick, User, Name).
 
+is_logged_in(Client) ->
+    eirc_cl:is_logged_in(Client).
+
 privmsg(Client, Nick, Msg) ->
     eirc_cl:msg(Client, privmsg, Nick, Msg).
 

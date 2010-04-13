@@ -25,10 +25,18 @@
 %% ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 %% POSSIBILITY OF SUCH DAMAGE.
 
+%% Records
+-record(state, { event_receiver, server, port, socket, nick, pass, user, name, 
+		 logged_in, autoping, chprefix, network, usrprefix,
+		 login_time, channels }).
+-record(ircmsg, { server, nick, user, host, ctcp, cmd, args = [] }).
+
+%% Helpers
 -define(CRLF, "\r\n").
 -define(CMD(Cmd), [Cmd, ?CRLF]).
+-define(CTCP(Cmd), [1,Cmd,1]).
 
-%% IRC Command macros
+%% IRC Commands
 -define(PASS(Pwd), ?CMD(["PASS ",Pwd])).
 -define(NICK(Nick), ?CMD(["NICK ",Nick])).
 -define(USER(User, Name), ?CMD(["USER ",User," 0 * :",Name])).
@@ -38,10 +46,13 @@
 -define(NOTICE(Nick, Msg), ?CMD(["NOTICE ",Nick," :",Msg])).
 -define(QUIT(Msg), ?CMD(["QUIT :",Msg])).
 
-%% Records
--record(ircmsg, { server, nick, user, host, cmd, args = [] }).
+%% CTCP Responses
+-define(RPL_CTCP_VERSION, ?CTCP("VERSION EIRC-BOT 0.0.1")).
+-define(RPL_CTCP_TIME, ?CTCP("TIME "++eirc_lib:ctcp_time(
+					calendar:local_time()))).
+-define(RPL_CTCP_PING(Timestamp), ?CTCP("PING "++Timestamp)).
 
-%% IRC Codes
+%% IRC Numeric Codes
 -define(RPL_WELCOME, "001").
 -define(RPL_YOURHOST, "002").
 -define(RPL_CREATED, "003").

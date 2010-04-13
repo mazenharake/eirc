@@ -28,17 +28,7 @@
 -module(eirc_cl).
 -include("eirc.hrl").
 
-%% Module API
-%% -export([connect/4, connect_link/4, disconnect/2]).
 -compile(export_all).
-
-%% Private API
-%% -export([init/1]).
-
-%% Records
--record(state, { event_receiver, server, port, socket, nick, pass, user, name, 
-		 logged_in, autoping, chprefix, network, usrprefix,
-		 login_time, channels, pending }).
 
 %% =============================================================================
 %% Module API
@@ -55,6 +45,9 @@ connect(Client, Server, Port) ->
 logon(Client, Pass, Nick, User, Name) ->
     gen_server:call(Client, {logon, Pass, Nick, User, Name}, infinity).
 
+is_logged_in(Client) ->
+    gen_server:call(Client, is_logged_in).
+
 msg(Client, Type, Nick, Msg) ->
     gen_server:call(Client, {msg, Type, Nick, Msg}, infinity).
 
@@ -70,13 +63,14 @@ quit(Client, QuitMsg) ->
 %% =============================================================================
 %% Behaviour callback API
 %% =============================================================================
+%% INIT
 init({StarterPid, Options}) ->
     EventPid = proplists:get_value(event_receiver, Options, StarterPid),
     Autoping = proplists:get_value(autoping, Options, true),
     {ok, #state{ event_receiver = EventPid, autoping = Autoping,
 		 logged_in = false }}.
 
-
+%% CALLS
 handle_call({connect, Server, Port}, _From, State) ->
     case gen_tcp:connect(Server, Port, [list, {packet, line}]) of
 	{ok, Socket} ->
@@ -86,40 +80,44 @@ handle_call({connect, Server, Port}, _From, State) ->
 	    {reply, Error, State}
     end;
 
-handle_call({logon, Pass, Nick, User, Name}, From, 
-	    #state{ pending = undefined } = State) ->
+handle_call({logon, Pass, Nick, User, Name}, _From, 
+	    #state{ logged_in = false } = State) ->
     gen_tcp:send(State#state.socket, ?PASS(Pass)),
     gen_tcp:send(State#state.socket, ?NICK(Nick)),
     gen_tcp:send(State#state.socket, ?USER(User, Name)),
-    {noreply, State#state{ pass = Pass, nick = Nick, user = User,
-			   name = Name, pending = From }};
+    {reply, ok, State#state{ pass = Pass, nick = Nick, user = User,
+			     name = Name }};
 
-handle_call({quit, QuitMsg}, From, State) ->
+handle_call({quit, QuitMsg}, _From, State) ->
     gen_tcp:send(State#state.socket, ?QUIT(QuitMsg)),
-    {noreply, State#state{ pending = From }};
+    {reply, ok, State};
+
+handle_call({msg, Type, Nick, Msg}, _From, State) ->
+    Data = case Type of
+	       privmsg -> ?PRIVMSG(Nick, Msg);
+	       notice -> ?NOTICE(Nick, Msg)
+	   end,
+    gen_tcp:send(State#state.socket, Data),
+    {reply, ok, State};
+
+handle_call({join, Channel, Key}, _From, State) ->
+    {reply, ok, State};
 
 handle_call({cmd, RawCmd}, _From, State) ->
     gen_tcp:send(State#state.socket, ?CMD(RawCmd)),
     {reply, ok, State};
 
-handle_call(_Call, _From, #state{ logged_in = false } = State) ->
-    {reply, {error, not_logged_in}, State};
-
-handle_call({msg, Type, Nick, Msg}, _From, State) ->
-    gen_tcp:send(State#state.socket, 
-		 case Type of
-		     privmsg -> ?PRIVMSG(Nick, Msg);
-		     notice -> ?NOTICE(Nick, Msg)
-		 end),
-    {reply, ok, State};
-
-
-handle_call({join, Channel, Key}, _From, State) ->
-    {reply, ok, State};
+handle_call(is_logged_in, _From, State) ->
+    {reply, State#state.logged_in, State};
 
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
+%% CAST
+handle_cast(_Cast, State) ->
+    {noreply, State}.
+
+%% INFO
 handle_info({tcp_closed, _Socket}, State) ->
     {stop, normal, State};
 
@@ -127,22 +125,18 @@ handle_info({tcp_error, Socket}, State) ->
     {stop, {tcp_error, Socket}, State};
 
 handle_info({tcp, _, Data}, State) ->
-    Msg = parse(Data),
+    Msg = eirc_lib:parse(Data),
     send_event(Msg, State),
     handle_data(Msg, State);
 
 handle_info(_, State) ->
     {noreply, State}.
 
-
+%% TERMINATE
 terminate(_Reason, _State) ->
     ok.
 
-
-handle_cast(_Cast, State) ->
-    {noreply, State}.
-
-
+%% CODE CHANGE
 code_change(_Old, State, _Extra) ->
     {ok, State}.
 
@@ -152,23 +146,20 @@ code_change(_Old, State, _Extra) ->
 %% MOTD after PNU was sent = successful
 handle_data(#ircmsg{ cmd = ?RPL_WELCOME },
 	    #state{ logged_in = false } = State) ->
-    gen_server:reply(State#state.pending, ok),
     {noreply, State#state{ logged_in = true, 
-			   pending = undefined,
 			   login_time = erlang:now() }};
 
 handle_data(#ircmsg{ cmd = ?RPL_ISUPPORT } = Msg, State) ->
-    {noreply, isup(Msg#ircmsg.args, State)};
+    {noreply, eirc_lib:isup(Msg#ircmsg.args, State)};
 
-%% Possible PNU error _or_ a Message in between
-handle_data(#ircmsg{ cmd = Cmd } = Msg,
-	    #state{ logged_in = false } = State) ->
-    case lists:member(Cmd, ?LOGON_ERRORS) of
-	true ->
-	    gen_server:reply(State#state.pending, {error, Msg}),
-	    {noreply, State#state{ pending = undefined }};
-	false ->
-	    %% E.g. NOTICE coming in during login. Take no action.
+%% CTCP request
+handle_data(#ircmsg{ cmd = "PRIVMSG", args = [_,[1|CTCP]|Arg] } = Msg, State) ->
+    case lists:reverse(CTCP) of
+	[1|CTCPRev] -> 
+	    handle_ctcp(Msg#ircmsg{ cmd = lists:reverse(CTCPRev), 
+				    args = string:tokens(Arg," ") }, State);
+	_ ->
+	    %% invalid ctcp
 	    {noreply, State}
     end;
 
@@ -183,11 +174,27 @@ handle_data(#ircmsg{ cmd = "PING" } = Msg, #state{ autoping = true } = State) ->
     {noreply, State};
 
 handle_data(#ircmsg{ cmd = "ERROR", args = ["Closing Link"++_] }, State) ->
-    gen_server:reply(State#state.pending, ok),
     {stop, normal, State};
 
 %% "catch-all", period. (DEV)
 handle_data(_Msg, State) ->
+    {noreply, State}.
+
+%% =============================================================================
+%% CTCP
+%% =============================================================================
+handle_ctcp(#ircmsg{ cmd = "VERSION" } = Msg, State) ->
+    gen_tcp:send(State#state.socket, ?NOTICE(Msg#ircmsg.nick, 
+					     ?RPL_CTCP_VERSION)),
+    {noreply, State};
+handle_ctcp(#ircmsg{ cmd = "TIME" } = Msg, State) ->
+    gen_tcp:send(State#state.socket, ?NOTICE(Msg#ircmsg.nick, 
+					     ?RPL_CTCP_TIME)), 
+    {noreply, State};
+handle_ctcp(#ircmsg{ cmd = "PING", args = [Timestamp] } = Msg, State) ->
+    gen_tcp:send(State#state.socket, ?RPL_CTCP_PING(Timestamp)),
+    {noreply, State};
+handle_ctcp(_Msg, State) ->
     {noreply, State}.
 
 %% =============================================================================
@@ -199,69 +206,8 @@ send_event(Msg, #state{ event_receiver = EventPid }) when is_pid(EventPid) ->
 send_event(Msg, #state{ event_receiver = EventMod }) when is_atom(EventMod) ->
     EventMod:handle_event(Msg).
 
+%% =============================================================================
+%% Helper functions
+%% =============================================================================
 gv(Key, Options) -> proplists:get_value(Key, Options).
 gv(Key, Options, Default) -> proplists:get_value(Key, Options, Default).
-
-dv(Key, Options) -> lists:keydelete(Key,1,Options).
-
-%% =============================================================================
-%% Generic IRC message parse
-%% =============================================================================
-parse(UnstrippedData) ->
-    Data = string:substr(UnstrippedData,1,length(UnstrippedData)-2),
-    case Data of
-	[$:|_] ->
-	    [[$:|From]|RestData] = string:tokens(Data," "),
-	    getcmd(RestData, parsefrom(From, #ircmsg{}));
-	Data ->
-	    getcmd(string:tokens(Data," "), #ircmsg{})
-    end.
-
-parsefrom(FromStr, Msg) ->
-    case re:split(FromStr, "(!|@)",[{return, list}]) of
-	[Nick, "!", User, "@", Host] ->
-	    Msg#ircmsg{ nick = Nick, user = User, host = Host };
-	[Nick, "@", Host] ->
-	    Msg#ircmsg{ nick = Nick, host = Host };
-	[Server] ->
-	    %% No nick detection... we are assuming it is the server here but it
-	    %% could just as well be a user nick (let someone else decide)
-	    Msg#ircmsg{ server = Server }
-    end.
-
-getcmd([Cmd|RestData], Msg) ->
-    getargs(RestData, Msg#ircmsg{ cmd = Cmd }).
-
-getargs([], Msg) ->
-    Msg#ircmsg{ args = lists:reverse(Msg#ircmsg.args) };
-getargs([[$:|FirstArg]|RestArgs], Msg) ->
-    case lists:flatten([" "++Arg||Arg<-[FirstArg|RestArgs]]) of
-	[_|[]] ->
-	    getargs([], Msg#ircmsg{ args = [""|Msg#ircmsg.args] });
-	[_|FullTrail] ->
-	    getargs([], Msg#ircmsg{ args = [FullTrail|Msg#ircmsg.args] })
-    end;
-getargs([Arg|[]], Msg) ->
-    getargs([], Msg#ircmsg{ args = ["",Arg|Msg#ircmsg.args] });
-getargs([Arg|RestData], Msg) ->
-    getargs(RestData, Msg#ircmsg{ args = [Arg|Msg#ircmsg.args] }).
-
-%% =============================================================================
-%% RPL_ISUPPORT (005) parse
-%% =============================================================================
-isup([], State) -> State;
-isup([Param|Rest], State) ->
-    try	isup(Rest, isup_param(Param, State))
-    catch _:_ -> isup(Rest, State) end.
-
-isup_param("CHANTYPES="++ChanPrefixes, State) ->
-    State#state{ chprefix = ChanPrefixes };
-isup_param("NETWORK="++Network, State) ->
-    State#state{ network = Network };
-isup_param("PREFIX="++UserPrefixes, State) ->
-    {match,[{P1,L1},{P2,L2}]} = 
-	re:run(UserPrefixes, "\\((.*)\\)(.*)", [{capture, all_but_first}]),
-    State#state{ usrprefix = lists:zip(string:substr(UserPrefixes,P1+1,L1),
-				       string:substr(UserPrefixes,P2+1,L2)) };
-isup_param(_, State) ->
-    State.
