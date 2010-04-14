@@ -62,7 +62,6 @@ set_topic(Struct, ChanName, Topic) ->
     Channel = gb_trees:get(Name, Struct),
     gb_trees:enter(Name, Channel#chan{ topic = Topic }, Struct).
 
-
 %% =============================================================================
 %% Users JOIN/PART/AKAs(namechange)
 %% =============================================================================
@@ -109,14 +108,21 @@ channels(Struct) ->
     [ ChanName || {ChanName, _Chan} <- gb_trees:to_list(Struct) ].
 
 chan_users(Struct, ChanName) ->
-    Name = normalize(ChanName),
-    case gb_trees:lookup(Name, Struct) of
-        {value, Channel} -> Channel#chan.users;
-	none -> {error, no_such_channel}
-    end.
+    get_attr(Struct, ChanName, fun(#chan{ users = Users }) -> Users end).
+
+chan_topic(Struct, ChanName) ->
+    get_attr(Struct, ChanName, fun(#chan{ topic = Topic }) -> Topic end).
+    
 
 %% =============================================================================
 %% Internal functions
 %% =============================================================================
 normalize(ChanName) -> string:to_lower(ChanName).
+
+get_attr(Struct, ChanName, Fun) ->
+    Name = normalize(ChanName),
+    case gb_trees:lookup(Name, Struct) of
+	{value, Channel} -> Fun(Channel);
+        none -> {error, no_such_channel}
+    end.
 

@@ -45,6 +45,7 @@
 -define(PRIVMSG(Nick, Msg), ?CMD(["PRIVMSG ",Nick," :",Msg])).
 -define(NOTICE(Nick, Msg), ?CMD(["NOTICE ",Nick," :",Msg])).
 -define(JOIN(Chan, Key), ?CMD(["JOIN ",Chan," ",Key])).
+-define(PART(Chan), ?CMD(["PART ",Chan])).
 -define(QUIT(Msg), ?CMD(["QUIT :",Msg])).
 
 %% CTCP Responses
@@ -61,6 +62,8 @@
 %% -define(RPL_BOUNCE, "005"). %% RFC2812
 -define(RPL_ISUPPORT, "005"). %% Defacto standard for server support
 -define(RPL_BOUNCE, "010"). %% Defacto replacement of "005" in RFC2812
+
+-define(RPL_TOPIC, "332").
 
 -define(ERR_NONICKNAMEGIVEN, "431").
 -define(ERR_ERRONEUSNICKNAME, "432").

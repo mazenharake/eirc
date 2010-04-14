@@ -68,6 +68,9 @@ join(Client, Channel) ->
 join(Client, Channel, Key) ->
     eirc_cl:join(Client, Channel, Key).
 
+part(Client, Channel) ->
+    eirc_cl:part(Client, Channel).
+
 quit(Client, QuitMsg) ->
     eirc_cl:quit(Client, QuitMsg).
 
@@ -77,8 +80,11 @@ is_logged_on(Client) ->
 channels(Client) ->
     eirc_cl:channels(Client).
 
-chan_users(Client, ChanName) ->
-    eirc_cl:chan_users(Client, ChanName).
+chan_users(Client, Channel) ->
+    eirc_cl:chan_users(Client, Channel).
+
+chan_topic(Client, Channel) ->
+    eirc_cl:chan_topic(Client, Channel).
 
 %% =============================================================================
 %% Internal Functions

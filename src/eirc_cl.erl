@@ -54,6 +54,9 @@ cmd(Client, RawCmd) ->
 join(Client, Channel, Key) ->
     gen_server:call(Client, {join, Channel, Key}, infinity).
 
+part(Client, Channel) ->
+    gen_server:call(Client, {part, Channel}, infinity).
+
 quit(Client, QuitMsg) ->
     gen_server:call(Client, {quit, QuitMsg}, infinity).
 
@@ -63,8 +66,11 @@ is_logged_on(Client) ->
 channels(Client) ->
     gen_server:call(Client, channels).
 
-chan_users(Client, ChanName) ->
-    gen_server:call(Client, {chan_users, ChanName}).
+chan_users(Client, Channel) ->
+    gen_server:call(Client, {chan_users, Channel}).
+
+chan_topic(Client, Channel) ->
+    gen_server:call(Client, {chan_topic, Channel}).
 
 %% =============================================================================
 %% Behaviour callback API
@@ -112,6 +118,10 @@ handle_call({join, Channel, Key}, _From, State) ->
     gen_tcp:send(State#state.socket, ?JOIN(Channel, Key)),
     {reply, ok, State};
 
+handle_call({part, Channel}, _From, State) ->
+    gen_tcp:send(State#state.socket, ?PART(Channel)),
+    {reply, ok, State};
+
 handle_call({cmd, RawCmd}, _From, State) ->
     gen_tcp:send(State#state.socket, ?CMD(RawCmd)),
     {reply, ok, State};
@@ -122,8 +132,11 @@ handle_call(is_logged_on, _From, State) ->
 handle_call(channels, _From, State) ->
     {reply, eirc_chan:channels(State#state.channels), State};
 
-handle_call({chan_users, ChanName}, _From, State) ->
-    {reply, eirc_chan:chan_users(State#state.channels, ChanName), State};
+handle_call({chan_users, Channel}, _From, State) ->
+    {reply, eirc_chan:chan_users(State#state.channels, Channel), State};
+
+handle_call({chan_topic, Channel}, _From, State) ->
+    {reply, eirc_chan:chan_topic(State#state.channels, Channel), State};
 
 handle_call(_, _, State) ->
     {reply, ok, State}.
@@ -182,6 +195,24 @@ handle_data(#ircmsg{ cmd = ?RPL_ISUPPORT } = Msg, State) ->
 handle_data(#ircmsg{ nick = Nick, cmd = "JOIN" } = Msg,
 	    #state{ nick = Nick } = State) ->
     Channels = eirc_chan:join(State#state.channels, hd(Msg#ircmsg.args)),
+    {noreply, State#state{ channels = Channels }};
+
+%% Topic message on join
+handle_data(#ircmsg{ cmd = ?RPL_TOPIC } = Msg, State) ->
+    case Msg#ircmsg.args of
+	[_MyNick, Channel, Topic] -> 
+	    %% Not RFC compliant but _very_ common
+	    ok;
+	[Channel, Topic] -> 
+	    %% RFC expected response
+	    ok
+    end,
+    Channels = eirc_chan:set_topic(State#state.channels, Channel, Topic),
+    {noreply, State#state{ channels = Channels }};
+
+%% Topic message while in channel
+handle_data(#ircmsg{ cmd = "TOPIC", args = [Channel, Topic] }, State) ->
+    Channels = eirc_chan:set_topic(State#state.channels, Channel, Topic),
     {noreply, State#state{ channels = Channels }};
 
 %% We left a channel
