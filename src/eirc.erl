@@ -86,6 +86,12 @@ chan_users(Client, Channel) ->
 chan_topic(Client, Channel) ->
     eirc_cl:chan_topic(Client, Channel).
 
+chan_type(Client, Channel) ->
+    eirc_cl:chan_type(Client, Channel).
+
+chan_has_user(Client, Channel, Nick) ->
+    eirc_cl:chan_has_user(Client, Channel, Nick).
+
 %% =============================================================================
 %% Internal Functions
 %% =============================================================================

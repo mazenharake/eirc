@@ -72,6 +72,12 @@ chan_users(Client, Channel) ->
 chan_topic(Client, Channel) ->
     gen_server:call(Client, {chan_topic, Channel}).
 
+chan_type(Client, Channel) ->
+    gen_server:call(Client, {chan_type, Channel}).
+
+chan_has_user(Client, Channel, Nick) ->
+    gen_server:call(Client, {chan_has_user, Channel, Nick}).
+
 %% =============================================================================
 %% Behaviour callback API
 %% =============================================================================
@@ -138,6 +144,13 @@ handle_call({chan_users, Channel}, _From, State) ->
 handle_call({chan_topic, Channel}, _From, State) ->
     {reply, eirc_chan:chan_topic(State#state.channels, Channel), State};
 
+handle_call({chan_type, Channel}, _From, State) ->
+    {reply, eirc_chan:chan_type(State#state.channels, Channel), State};
+
+handle_call({chan_has_user, Channel, Nick}, _From, State) ->
+    {reply, eirc_chan:chan_has_user(State#state.channels, 
+				    Channel, Nick), State};
+
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
@@ -197,15 +210,19 @@ handle_data(#ircmsg{ nick = Nick, cmd = "JOIN" } = Msg,
     Channels = eirc_chan:join(State#state.channels, hd(Msg#ircmsg.args)),
     {noreply, State#state{ channels = Channels }};
 
+%% Someone joined a channel we are in
+handle_data(#ircmsg{ nick = UserNick, cmd = "JOIN"} = Msg, State) ->
+    Channels = eirc_chan:user_join(State#state.channels, hd(Msg#ircmsg.args),
+				   UserNick),
+    {noreply, State#state{ channels = Channels }};
+
 %% Topic message on join
+%% 3 arguments is not RFC compliant but _very_ common
+%% 2 arguments is RFC compliant
 handle_data(#ircmsg{ cmd = ?RPL_TOPIC } = Msg, State) ->
     case Msg#ircmsg.args of
-	[_MyNick, Channel, Topic] -> 
-	    %% Not RFC compliant but _very_ common
-	    ok;
-	[Channel, Topic] -> 
-	    %% RFC expected response
-	    ok
+	[_Nick, Channel, Topic] -> ok;
+	[Channel, Topic] -> ok
     end,
     Channels = eirc_chan:set_topic(State#state.channels, Channel, Topic),
     {noreply, State#state{ channels = Channels }};
@@ -215,16 +232,32 @@ handle_data(#ircmsg{ cmd = "TOPIC", args = [Channel, Topic] }, State) ->
     Channels = eirc_chan:set_topic(State#state.channels, Channel, Topic),
     {noreply, State#state{ channels = Channels }};
 
+%% NAMES reply
+handle_data(#ircmsg{ cmd = ?RPL_NAMREPLY } = Msg, State) ->
+    case Msg#ircmsg.args of
+	[_Nick, ChanType, Channel, Names] -> ok;
+	[ChanType, Channel, Names] -> ok
+    end,
+    Channels = eirc_chan:set_type(
+		 eirc_chan:users_join(State#state.channels,
+				      Channel, string:tokens(Names, " ")),
+		 Channel, ChanType),    
+    {noreply, State#state{ channels = Channels }};
+
+%% We successfully changed name 
+handle_data(#ircmsg{ cmd = "NICK", nick = Nick, args = [NewNick] },
+	    #state{ nick = Nick } = State) ->
+    {noreply, State#state{ nick = NewNick }};
+
+%% Someone we know (or can see) changed name
+handle_data(#ircmsg{ cmd = "NICK", nick = Nick, args = [NewNick] }, State) ->
+    Channels = eirc_chan:user_rename(State#state.channels, Nick, NewNick),
+    {noreply, State#state{ channels = Channels }};
+
 %% We left a channel
 handle_data(#ircmsg{ nick = Nick, cmd = "PART" } = Msg,
 	    #state{ nick = Nick } = State) ->
     Channels = eirc_chan:part(State#state.channels, hd(Msg#ircmsg.args)),
-    {noreply, State#state{ channels = Channels }};
-
-%% Someone joined a channel we are in
-handle_data(#ircmsg{ nick = UserNick, cmd = "JOIN"} = Msg, State) ->
-    Channels = eirc_chan:user_join(State#state.channels, hd(Msg#ircmsg.args),
-				   UserNick),
     {noreply, State#state{ channels = Channels }};
 
 %% Someone left a channel we are in

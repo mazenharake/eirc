@@ -64,6 +64,8 @@
 -define(RPL_BOUNCE, "010"). %% Defacto replacement of "005" in RFC2812
 
 -define(RPL_TOPIC, "332").
+-define(RPL_NAMREPLY, "353").
+-define(RPL_ENDOFNAMES, "366").
 
 -define(ERR_NONICKNAMEGIVEN, "431").
 -define(ERR_ERRONEUSNICKNAME, "432").

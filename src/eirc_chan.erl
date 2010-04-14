@@ -28,7 +28,7 @@
 -module(eirc_chan).
 -include("eirc.hrl").
 
--record(chan, { name, topic = "", users = [], modes = "" }).
+-record(chan, { name, topic = "", users = [], modes = "", type }).
 
 -compile(export_all).
 
@@ -42,7 +42,7 @@ init() ->
 %% Self JOIN/PART
 %% =============================================================================
 join(Struct, ChanName) ->
-    Name = normalize(ChanName),
+    Name = chan2lower(ChanName),
     case gb_trees:lookup(Name, Struct) of
 	{value, _} ->
 	    Struct;
@@ -51,16 +51,24 @@ join(Struct, ChanName) ->
     end.
 
 part(Struct, ChanName) ->
-    Name = normalize(ChanName),
+    Name = chan2lower(ChanName),
     gb_trees:delete(Name, Struct).    
 
 %% =============================================================================
 %% Channel Modes/Attributes
 %% =============================================================================
 set_topic(Struct, ChanName, Topic) ->
-    Name = normalize(ChanName),
+    Name = chan2lower(ChanName),
     Channel = gb_trees:get(Name, Struct),
     gb_trees:enter(Name, Channel#chan{ topic = Topic }, Struct).
+
+set_type(Struct, ChanName, ChanType) ->
+    Name = chan2lower(ChanName),
+    Channel = gb_trees:get(Name, Struct),
+    Type = case ChanType of
+	       "@" -> secret; "*" -> private; "=" -> public
+	   end,
+    gb_trees:enter(Name, Channel#chan{ type = Type }, Struct).
 
 %% =============================================================================
 %% Users JOIN/PART/AKAs(namechange)
@@ -69,34 +77,30 @@ user_join(Struct, ChanName, Nick) ->
     users_join(Struct, ChanName,[Nick]).
 
 users_join(Struct, ChanName, Nicks) ->
-    ManipFun = fun(ChanNicks) ->
-		       ChanNicks ++ Nicks
-	       end,
+    PNicks = strip_rank(Nicks),
+    ManipFun = fun(ChanNicks) -> lists:usort(ChanNicks ++ PNicks) end,
     users_manip(Struct, ChanName, ManipFun).
 
 user_part(Struct, ChanName, Nick) ->
-    users_part(Struct, ChanName, [Nick]).
-
-users_part(Struct, ChanName, Nicks) ->
-    ManipFun = fun(ChanNicks) ->
-		       ChanNicks -- Nicks
-	       end,
+    PNick = strip_rank([Nick]),
+    ManipFun = fun(ChanNicks) -> lists:usort(ChanNicks -- PNick) end,
     users_manip(Struct, ChanName, ManipFun).
 
-user_aka(Struct, ChanName, Nick, NewNick) ->
-    users_aka(Struct, ChanName, [{Nick, NewNick}]).
-
-users_aka(Struct, ChanName, NickNewNickList) ->
+user_rename(Struct, Nick, NewNick) ->
     ManipFun = fun(ChanNicks) ->
-		       F = fun({PrevNick, NewNick}, Acc) ->
-				   [NewNick|Acc--[PrevNick]]
-			   end,
-		       lists:foldl(NickNewNickList, ChanNicks, F)
+		       case lists:member(Nick, ChanNicks) of
+			   true -> lists:usort([NewNick|ChanNicks--[Nick]]);
+			   false -> ChanNicks
+		       end
 	       end,
-    users_manip(Struct, ChanName, ManipFun).
+    FoldlFun = fun(ChanName, NewStruct) ->
+		       Name = chan2lower(ChanName),
+		       users_manip(NewStruct, Name, ManipFun)
+	       end,
+    lists:foldl(FoldlFun, Struct, channels(Struct)). 
 
 users_manip(Struct, ChanName, Fun) ->
-    Name = normalize(ChanName),
+    Name = chan2lower(ChanName),
     Channel = gb_trees:get(Name, Struct),
     Chanlist = Fun(Channel#chan.users),
     gb_trees:enter(ChanName, Channel#chan{ users = Chanlist }, Struct).
@@ -112,15 +116,27 @@ chan_users(Struct, ChanName) ->
 
 chan_topic(Struct, ChanName) ->
     get_attr(Struct, ChanName, fun(#chan{ topic = Topic }) -> Topic end).
-    
+
+chan_type(Struct, ChanName) ->
+    get_attr(Struct, ChanName, fun(#chan{ type = Type }) -> Type end).
+
+chan_has_user(Struct, ChanName, Nick) ->
+    get_attr(Struct, ChanName, fun(#chan{ users = Users }) -> 
+				       lists:member(Nick, Users)
+			       end).
 
 %% =============================================================================
 %% Internal functions
 %% =============================================================================
-normalize(ChanName) -> string:to_lower(ChanName).
+chan2lower(ChanName) -> string:to_lower(ChanName).
+
+strip_rank(Nicks) -> 
+    lists:map(fun([$@|Nick]) -> Nick;
+		 ([$+|Nick]) -> Nick;
+		 (Nick) -> Nick end, Nicks).
 
 get_attr(Struct, ChanName, Fun) ->
-    Name = normalize(ChanName),
+    Name = chan2lower(ChanName),
     case gb_trees:lookup(Name, Struct) of
 	{value, Channel} -> Fun(Channel);
         none -> {error, no_such_channel}
