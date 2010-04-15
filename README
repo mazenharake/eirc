@@ -45,3 +45,28 @@ POSSIBILITY OF SUCH DAMAGE.
 
 == Compiling ==
 Just run make.
+
+== Example ==
+Edit the src/eirc_example_bot.erl according to what network/user you want to use
+then compile and run from the root dir like this:
+
+$> erl -pa ebin
+Erlang R13B03 (erts-5.7.4) [source] [smp:2:2] [rq:2] [async-threads:0] [hipe] [kernel-poll:false]
+
+Eshell V5.7.4  (abort with ^G)
+1> eirc_example_bot:start_link().
+Client started...
+{ok,<0.35.0>}
+CMD<mazenharake> !VERSION
+CMD<mazenharake> !NODE
+CMD<mazenharake> !CALCULATE
+CMD<mazenharake> !CRASH
+CMD<mazenharake> !UNKNOWN_COMMAND
+CMD<mazenharake> !MFA erlang memory [total]
+CMD<mazenharake> !MFA erlang halt []
+2>
+$> 
+
+In this example I sent the commands shown above (in the example they are echoed
+into the shell). erlang:halt/0 is one of numerous reasons why this isn't a safe
+way to allow MFAs :)
