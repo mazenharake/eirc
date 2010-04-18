@@ -63,21 +63,30 @@
 -define(RPL_ISUPPORT, "005"). %% Defacto standard for server support
 -define(RPL_BOUNCE, "010"). %% Defacto replacement of "005" in RFC2812
 
+-define(RPL_STATSDLINE, "250").
+-define(RPL_LUSERCLIENT, "251").
+-define(RPL_LUSEROP, "252").
+-define(RPL_LUSERUNKNOWN, "253").
+-define(RPL_LUSERCHANNELS, "254").
+-define(RPL_LUSERME, "255").
+-define(RPL_LOCALUSERS, "265").
+-define(RPL_GLOBALUSERS, "266").
+
 -define(RPL_TOPIC, "332").
 -define(RPL_NAMREPLY, "353").
 -define(RPL_ENDOFNAMES, "366").
+-define(RPL_MOTD, "372").
+-define(RPL_MOTDSTART, "375").
+-define(RPL_ENDOFMOTD, "376").
 
 -define(ERR_NONICKNAMEGIVEN, "431").
 -define(ERR_ERRONEUSNICKNAME, "432").
 -define(ERR_NICKNAMEINUSE, "433").
 -define(ERR_NICKCOLLISION, "436").
 -define(ERR_UNAVAILRESOURCE, "437").
-
 -define(ERR_NEEDMOREPARAMS, "461").
 -define(ERR_ALREADYREGISTRED, "462").
-
 -define(ERR_RESTRICTED, "484").
-
 
 %% Code groups
 -define(LOGON_ERRORS, [?ERR_NONICKNAMEGIVEN, ?ERR_ERRONEUSNICKNAME,

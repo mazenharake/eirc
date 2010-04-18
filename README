@@ -51,7 +51,8 @@ Edit the src/eirc_example_bot.erl according to what network/user you want to use
 then compile and run from the root dir like this:
 
 $> erl -pa ebin
-Erlang R13B03 (erts-5.7.4) [source] [smp:2:2] [rq:2] [async-threads:0] [hipe] [kernel-poll:false]
+Erlang R13B03 (erts-5.7.4) [source] [smp:2:2] [rq:2] [async-threads:0] [hipe] 
+[kernel-poll:false]
 
 Eshell V5.7.4  (abort with ^G)
 1> eirc_example_bot:start_link().
