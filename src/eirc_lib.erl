@@ -44,15 +44,16 @@ parse(UnstrippedData) ->
     end.
 
 parsefrom(FromStr, Msg) ->
-    case re:split(FromStr, "(!|@)",[{return, list}]) of
-	[Nick, "!", User, "@", Host] ->
-	    Msg#ircmsg{ nick = Nick, user = User, host = Host };
-	[Nick, "@", Host] ->
-	    Msg#ircmsg{ nick = Nick, host = Host };
-	[Server] ->
-	    %% No nick detection... we are assuming it is the server here but it
-	    %% could just as well be a user nick (let someone else decide)
-	    Msg#ircmsg{ server = Server }
+    case re:split(FromStr, "(!|@|\\.)",[{return, list}]) of
+	[Nick, "!", User, "@", Host|HostRest] ->
+	    Msg#ircmsg{ nick = Nick, user = User, host = Host++HostRest };
+	[Nick, "@", Host|HostRest] ->
+	    Msg#ircmsg{ nick = Nick, host = Host++HostRest };
+	[_,"."|_] ->
+	    %% FromStr is _most_likely_ a server name
+	    Msg#ircmsg{ server = FromStr };
+	[Nick] ->
+	    Msg#ircmsg{ nick = Nick }
     end.
 
 getcmd([Cmd,Arg1,[$:,1|CTCPTrail]|RestArgs], Msg) when Cmd == "PRIVMSG"; 
@@ -64,8 +65,7 @@ getcmd([Cmd,_Arg1,[1|CTCPTrail]|RestArgs], Msg) when Cmd == "PRIVMSG";
 	[1|CTCPRev] ->
 	    [CTCPCmd|Args] = string:tokens(lists:reverse(CTCPRev)," "),
 	    Msg#ircmsg{ cmd = CTCPCmd, args = Args, ctcp = true };
-	Str ->
-	    io:format("ERROR: ~1000p~n",[Str]),
+	_ ->
 	    Msg#ircmsg{ cmd = Cmd, ctcp = invalid }
     end;
 getcmd([Cmd|RestData], Msg) ->
