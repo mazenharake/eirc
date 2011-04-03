@@ -35,22 +35,41 @@
 start_link() ->
     start_link([]).
 start_link(Options) ->
+    application:start(eirc),
     gen_server:start_link({local, ?MODULE}, ?MODULE, Options, []).
+
+stop() ->
+    gen_server:call(?MODULE, stop).
 
 init(Options) ->
     process_flag(trap_exit, true),
-    Nick = proplists:get_value(nick, Options, "mhtest"),
+
+    Nick = proplists:get_value(nick, Options, io_lib:format("eircbot~p", [random:uniform(100000)])),
+
     %% Start a client
-    {ok, Client} = eirc:start_link(Options),
+    {ok, Client} = eirc:start_client("freenode", []),
+
+    %% Register for events
+    eirc:add_handler(Client, self()),
+
     %% Connect the client to freenode
-    eirc:connect(Client, "chat.freenode.net", 6667),
+    %%    eirc:connect(Client, "chat.freenode.net", 6667),
     %% Log on the client with the given nickname
-    eirc:logon(Client, "nopass", Nick, Nick, ?VERSION),
+    %%    eirc:logon(Client, "nopass", Nick, Nick, ?VERSION),
+    eirc:connect_and_logon(Client, "chat.freenode.net", 6667, "nopass", Nick, Nick, ?VERSION),
+
     %% Since logon is asynch, wait until the flag eirc:is_logged_on/1 is true
     wait(60000, fun() -> eirc:is_logged_on(Client) end),
+
     %% We have successfully connected and are now online
-    io:format("Client started...~n"),
+    io:format("Client started (nick: ~s)...~n",[Nick]),
+
     {ok, #botstate{ cl = Client, nick = Nick }}.
+
+handle_call(stop, _From, State) ->
+    eirc:quit(State#botstate.cl, "Stopping bot."),
+    eirc:stop_client("freenode"),
+    {stop, normal, ok, State}.
 
 %% This happens when the bot gets a normal message sent to it
 %% The first argument in #ircmsg.args is very often the bot's own nickname but
@@ -102,6 +121,9 @@ handle_info({response, Pid, Result}, State) ->
 %% Anything else... just ignore it!
 handle_info(_, State) ->
     {noreply, State}.
+
+terminate(_, _) ->
+    ok.
 
 %% This is where all the commands are handled. This is a _very_ basic way of
 %% checking commands. Probably this would be more advanced based on what the

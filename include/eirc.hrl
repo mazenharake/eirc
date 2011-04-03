@@ -23,9 +23,11 @@
 %% POSSIBILITY OF SUCH DAMAGE.
 
 %% Records
--record(state, { event_receiver, server, port, socket, nick, pass, user, name, 
-		 logged_on, autoping, chprefix, network, usrprefix,
-		 login_time, channels, debug }).
+-record(eirc_state, { event_handlers = [], server, port, socket, nick,
+		      pass, user, name, logged_on, autoping, chprefix,
+		      network, usrprefix, login_time, channels, debug
+		      }).
+
 -record(ircmsg, { server, nick, user, host, ctcp, cmd, args = [] }).
 
 %% Helpers

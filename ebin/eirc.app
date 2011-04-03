@@ -1,6 +1,7 @@
 {application, eirc,
- [{description, "An IRC client library for Erlang"},
+ [{description, "IRC client(s) application"},
   {vsn, "0.0.1"},
   {modules, [eirc]},
   {applications, []},
+  {mod, {eirc, []}},
   {env, []}]}.

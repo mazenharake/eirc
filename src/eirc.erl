@@ -32,20 +32,41 @@
 %% =============================================================================
 %% Application API
 %% =============================================================================
-start() ->
-    start([]).
+start(_, _) ->
+    eirc_cl_sup:start_link().
 
-start(Options) ->
-    eirc_cl:start(Options).
+stop(_) ->
+    ok.
 
-start_link() ->
-    start_link([]).
+%% =============================================================================
+%% Client API
+%% =============================================================================
+start_client(ClientId) ->
+    start_client(ClientId,[]).
 
-start_link(Options) ->
-    eirc_cl:start_link(Options).
+start_client(ClientId, Options) ->
+    eirc_cl_sup:start_client(ClientId, Options).
+
+stop_client(ClientId) ->
+    eirc_cl_sup:stop_client(ClientId).
+
+get_client(ClientId) ->
+    eirc_cl_sup:get_client(ClientId).
+
+connect_and_logon(Client, Server, Port, Nick) ->
+    connect_and_logon(Client, Server, Port, "nopass", Nick, Nick, "No Name").
+
+connect_and_logon(Client, Server, Port, Pass, Nick, User, Name) ->
+    case connect(Client, Server, Port) of
+	ok -> logon(Client, Pass, Nick, User, Name);
+	Error -> Error
+    end.
 
 connect(Client, Server, Port) ->
     eirc_cl:connect(Client, Server, Port).
+
+logon(Client, Nick) ->
+    logon(Client, "nopass", Nick, Nick, "No Name").
 
 logon(Client, Pass, Nick, User, Name) ->
     eirc_cl:logon(Client, Pass, Nick, User, Name).
@@ -88,6 +109,15 @@ chan_type(Client, Channel) ->
 
 chan_has_user(Client, Channel, Nick) ->
     eirc_cl:chan_has_user(Client, Channel, Nick).
+
+add_handler(Client, Pid) when is_pid(Pid) ->
+    eirc_cl:add_handler(Client, Pid).
+
+remove_handler(Client, Pid) when is_pid(Pid) ->
+    eirc_cl:remove_handler(Client, Pid).
+
+state(Client) ->
+    eirc_cl:state(Client).
 
 %% =============================================================================
 %% Internal Functions

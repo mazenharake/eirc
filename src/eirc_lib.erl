@@ -91,13 +91,13 @@ isup([Param|Rest], State) ->
     catch _:_ -> isup(Rest, State) end.
 
 isup_param("CHANTYPES="++ChanPrefixes, State) ->
-    State#state{ chprefix = ChanPrefixes };
+    State#eirc_state{ chprefix = ChanPrefixes };
 isup_param("NETWORK="++Network, State) ->
-    State#state{ network = Network };
+    State#eirc_state{ network = Network };
 isup_param("PREFIX="++UserPrefixes, State) ->
     {match,[{P1,L1},{P2,L2}]} = 
 	re:run(UserPrefixes, "\\((.*)\\)(.*)", [{capture, all_but_first}]),
-    State#state{ usrprefix = lists:zip(string:substr(UserPrefixes,P1+1,L1),
+    State#eirc_state{ usrprefix = lists:zip(string:substr(UserPrefixes,P1+1,L1),
 				       string:substr(UserPrefixes,P2+1,L2)) };
 isup_param(_, State) ->
     State.
