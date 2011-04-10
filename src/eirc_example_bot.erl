@@ -31,6 +31,9 @@
 
 -include("eirc.hrl").
 
+-export([init/2, on_connect/1, on_text/4, on_notice/4, on_join/3, on_part/3,
+	 on_ctcp/4, handle_call/3, terminate/2]).
+
 -compile(export_all).
 
 -record(botstate, { cl, nick, waiting }).
@@ -98,7 +101,7 @@ handle_call({stop, QuitMsg}, _From, State) ->
 terminate(Reason, _State) ->
     io:format("Bot terminating ~p...~n", [Reason]),
     ok.
-
+ 
 
 
 %% This happens when the bot gets a normal message sent to it

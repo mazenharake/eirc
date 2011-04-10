@@ -142,8 +142,14 @@ callback(Module) ->
 %% Behaviour API
 %% =============================================================================
 behaviour_info(callbacks) ->
-    [{init, 1},
+    [{init, 2},
      {on_connect, 1},
+     {on_text, 4},
+     {on_notice, 4},
+     {on_join, 3},
+     {on_part, 3},
+     {on_ctcp, 4},
+     {handle_call, 3},
      {terminate, 2}];
 behaviour_info(_) -> undefined.
 
