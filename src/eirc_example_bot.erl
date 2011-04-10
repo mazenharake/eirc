@@ -32,7 +32,7 @@
 -include("eirc.hrl").
 
 -export([init/2, on_connect/1, on_text/4, on_notice/4, on_join/3, on_part/3,
-	 on_ctcp/4, handle_call/3, terminate/2]).
+	 on_ctcp/4, on_mode/5, on_topic/4, handle_call/3, terminate/2]).
 
 -compile(export_all).
 
@@ -87,6 +87,15 @@ on_part(User, Channel, State) ->
 
 on_ctcp(User, Cmd, Args, State) ->
     io:format("CTCP: ~p:~p - ~p~n", [User, Cmd, Args]),
+    {ok, State}.
+
+on_mode(ServerOrNick, TargetChanOrNick, ModeFlags, ModeParameters, State) ->
+    io:format("MODE: ~p sets ~p on ~p (parameters: ~p)~n", 
+	      [ServerOrNick, ModeFlags, TargetChanOrNick, ModeParameters]),
+    {ok, State}.
+
+on_topic(Nick, Channel, Topic, State) ->
+    io:format("TOPIC: (~p) ~p set topic to: ~p~n", [Channel, Nick, Topic]),
     {ok, State}.
 
 handle_call(print_state, From, State) ->

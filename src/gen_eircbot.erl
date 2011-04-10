@@ -125,6 +125,14 @@ handle_ircmsg(#ircmsg{ cmd = "PART" } = IrcMsg, State) ->
     User = IrcMsg#ircmsg.nick,
     Channel = hd(IrcMsg#ircmsg.args),
     (State#st.cb)(on_part, [User, Channel, State#st.cbstate]);
+handle_ircmsg(#ircmsg{ cmd = "MODE" } = IrcMsg, State) ->
+    ServerOrNick = IrcMsg#ircmsg.nick,
+    [ChanOrNick,Flags|Parameters] = IrcMsg#ircmsg.args,
+    (State#st.cb)(on_mode, [ServerOrNick, ChanOrNick, Flags, Parameters, State#st.cbstate]);
+handle_ircmsg(#ircmsg{ cmd = "TOPIC" } = IrcMsg, State) ->
+    User = IrcMsg#ircmsg.nick,
+    [Channel|Topic] = IrcMsg#ircmsg.args,
+    (State#st.cb)(on_topic, [User, Channel, hd(Topic), State#st.cbstate]);
 handle_ircmsg(IrcMsg, State) ->
     io:format("IRCMSG: ~1000p~n", [IrcMsg]),
     {ok, State#st.cbstate}.
@@ -149,6 +157,8 @@ behaviour_info(callbacks) ->
      {on_join, 3},
      {on_part, 3},
      {on_ctcp, 4},
+     {on_mode, 5},
+     {on_topic, 4},
      {handle_call, 3},
      {terminate, 2}];
 behaviour_info(_) -> undefined.
