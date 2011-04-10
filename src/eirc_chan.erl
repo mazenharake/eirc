@@ -122,6 +122,10 @@ chan_has_user(Struct, ChanName, Nick) ->
 				       lists:member(Nick, Users)
 			       end).
 
+to_proplist(Struct) ->
+    [ {ChanName, [{users, Chan#chan.users}, {topic, Chan#chan.topic}, {type, Chan#chan.type}]}
+      || {ChanName, Chan} <- gb_trees:to_list(Struct) ].
+
 %% =============================================================================
 %% Internal functions
 %% =============================================================================

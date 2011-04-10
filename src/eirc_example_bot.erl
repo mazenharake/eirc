@@ -26,50 +26,80 @@
 %% to chat.freenode.net and waits for commands. 
 
 -module(eirc_example_bot).
+
+-behaviour(gen_eircbot).
+
 -include("eirc.hrl").
+
 -compile(export_all).
+
 -record(botstate, { cl, nick, waiting }).
--define(VERSION, "EIRC Example Bot 0.1").
 
-%% Options can contain: {nick, "NickName"}
-start_link() ->
-    start_link([]).
-start_link(Options) ->
+-define(VERSION, "EIRC Example Bot 0.2").
+
+%% Options can contain: {local, Name::atom()}
+%% 
+start_link(IpHost, Port, Nick, _Options, Args) ->
     application:start(eirc),
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Options, []).
+    Options = [{register, {local, ?MODULE}}, {callback, ?MODULE}],
+    gen_eircbot:start_link(IpHost, Port, Nick, Options, Args).
 
-stop() ->
-    gen_server:call(?MODULE, stop).
+print_state() ->
+    gen_eircbot:call(?MODULE, print_state).
 
-init(Options) ->
-    process_flag(trap_exit, true),
+stop(QuitMsg) ->
+    gen_eircbot:call(?MODULE, {stop, QuitMsg}).
 
-    Nick = proplists:get_value(nick, Options, io_lib:format("eircbot~p", [random:uniform(100000)])),
+init(Client, _Args) ->
+    io:format("Initiating bot...~n"),
+    {ok, #botstate{ cl = Client }}.
 
-    %% Start a client
-    {ok, Client} = eirc:start_client("freenode", []),
+on_connect(State) ->
+    io:format("Bot logged on...~n"),
+    BotNick = proplists:get_value(nick, eirc:state(State#botstate.cl)),
+    {ok, State#botstate{ nick = BotNick }}.
 
-    %% Register for events
-    eirc:add_handler(Client, self()),
+on_text("mazenharake", _, "!JOIN "++Channel, State) ->
+    eirc:join(State#botstate.cl, Channel),
+    {ok, State};
+on_text("mazenharake", _, "!PART "++Channel, State) ->
+    eirc:part(State#botstate.cl, Channel),
+    {ok, State};
+on_text(From, To, Text, State) ->
+    io:format("TEXT: From (~p) To (~p) - ~p ~n", [From, To, Text]),
+    eirc:privmsg(State#botstate.cl, From, io_lib:format("You sent me: \"~s\"",[Text])),
+    {ok, State}.
 
-    %% Connect the client to freenode
-    %%    eirc:connect(Client, "chat.freenode.net", 6667),
-    %% Log on the client with the given nickname
-    %%    eirc:logon(Client, "nopass", Nick, Nick, ?VERSION),
-    eirc:connect_and_logon(Client, "chat.freenode.net", 6667, "nopass", Nick, Nick, ?VERSION),
+on_notice(From, To, Text, State) ->
+    io:format("NOTICE: From (~p) To (~p) - ~p ~n", [From, To, Text]),
+    {ok, State}.
 
-    %% Since logon is asynch, wait until the flag eirc:is_logged_on/1 is true
-    wait(60000, fun() -> eirc:is_logged_on(Client) end),
+on_join(User, Channel, State) ->
+    io:format("JOIN: ~p joined ~p~n", [User, Channel]),
+    {ok, State}.
 
-    %% We have successfully connected and are now online
-    io:format("Client started (nick: ~s)...~n",[Nick]),
+on_part(User, Channel, State) ->
+    io:format("PART: (~p) ~p parted ~p~n", [State#botstate.nick, User, Channel]),
+    {ok, State}.
 
-    {ok, #botstate{ cl = Client, nick = Nick }}.
+on_ctcp(User, Cmd, Args, State) ->
+    io:format("CTCP: ~p:~p - ~p~n", [User, Cmd, Args]),
+    {ok, State}.
 
-handle_call(stop, _From, State) ->
-    eirc:quit(State#botstate.cl, "Stopping bot."),
-    eirc:stop_client("freenode"),
+handle_call(print_state, From, State) ->
+    CState = eirc:state(State#botstate.cl),
+    io:format("IRC Client State: ~n~p~n",[CState]),
+    {reply, From, State};
+handle_call({stop, QuitMsg}, _From, State) ->
+    io:format("Stopping bot...~n"),
+    eirc:quit(State#botstate.cl, QuitMsg),
     {stop, normal, ok, State}.
+
+terminate(Reason, _State) ->
+    io:format("Bot terminating ~p...~n", [Reason]),
+    ok.
+
+
 
 %% This happens when the bot gets a normal message sent to it
 %% The first argument in #ircmsg.args is very often the bot's own nickname but
@@ -122,8 +152,8 @@ handle_info({response, Pid, Result}, State) ->
 handle_info(_, State) ->
     {noreply, State}.
 
-terminate(_, _) ->
-    ok.
+%terminate(_, _) ->
+%    ok.
 
 %% This is where all the commands are handled. This is a _very_ basic way of
 %% checking commands. Probably this would be more advanced based on what the

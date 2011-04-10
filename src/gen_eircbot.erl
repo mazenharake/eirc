@@ -85,16 +85,13 @@ handle_call(Call, From, State) ->
 handle_cast(_Cast, State) ->
     {no_reply, State}.
 
-handle_info(#ircmsg{ cmd = ?RPL_WELCOME }, State) ->
-    case (State#st.cb)(on_connect, [State#st.cbstate]) of
+handle_info(#ircmsg{} = IrcMsg, State) ->
+    case handle_ircmsg(IrcMsg, State) of
 	{ok, NCBState} ->
 	    {noreply, State#st{ cbstate = NCBState }};
 	{stop, Reason} ->
 	    {stop, Reason, State}
     end;
-handle_info(IrcMsg, State) when is_record(IrcMsg, ircmsg) ->
-    io:format("IRCMSG: ~1000p ~n", [IrcMsg]),
-    {noreply, State};
 handle_info({'EXIT', Pid, normal}, #st{ clpid = Pid } = State) ->
     {stop, normal, State};
 handle_info(_Msg, State) ->
@@ -105,6 +102,34 @@ code_change(_OldVsn, State, _Extra) ->
 
 terminate(Reason, State) ->
     (State#st.cb)(terminate, [Reason, State#st.cbstate]).
+
+
+handle_ircmsg(#ircmsg{ cmd = ?RPL_WELCOME }, State) ->
+    (State#st.cb)(on_connect, [State#st.cbstate]);
+handle_ircmsg(#ircmsg{ ctcp = true } = IrcMsg, State) ->
+    (State#st.cb)(on_ctcp, [IrcMsg#ircmsg.nick, IrcMsg#ircmsg.cmd,
+			    IrcMsg#ircmsg.args, State#st.cbstate]);
+handle_ircmsg(#ircmsg{ cmd = "PRIVMSG" } = IrcMsg, State) ->
+    From = IrcMsg#ircmsg.nick,
+    [To|Msg] = IrcMsg#ircmsg.args,
+    (State#st.cb)(on_text, [From, To, lists:flatten(Msg), State#st.cbstate]);
+handle_ircmsg(#ircmsg{ cmd = "NOTICE" } = IrcMsg, State) ->
+    From = IrcMsg#ircmsg.nick,
+    [To|Msg] = IrcMsg#ircmsg.args,
+    (State#st.cb)(on_notice, [From, To, lists:flatten(Msg), State#st.cbstate]);
+handle_ircmsg(#ircmsg{ cmd = "JOIN" } = IrcMsg, State) ->
+    User = IrcMsg#ircmsg.nick,
+    Channel = hd(IrcMsg#ircmsg.args),
+    (State#st.cb)(on_join, [User, Channel, State#st.cbstate]);
+handle_ircmsg(#ircmsg{ cmd = "PART" } = IrcMsg, State) ->
+    User = IrcMsg#ircmsg.nick,
+    Channel = hd(IrcMsg#ircmsg.args),
+    (State#st.cb)(on_part, [User, Channel, State#st.cbstate]);
+handle_ircmsg(IrcMsg, State) ->
+    io:format("IRCMSG: ~1000p~n", [IrcMsg]),
+    {ok, State#st.cbstate}.
+
+
 
 
 

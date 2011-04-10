@@ -85,7 +85,22 @@ remove_handler(Client, Pid) ->
     gen_server:call(Client, {remove_handler, Pid}).
 
 state(Client) ->
-    gen_server:call(Client, state).
+    %% Don't expose the record because then people have to include your header
+    %% file when they compile, return a proplist instead and let them use that
+    State = gen_server:call(Client, state),
+    [{server, State#eirc_state.server},
+     {port, State#eirc_state.port},
+     {nick, State#eirc_state.nick},
+     {pass, State#eirc_state.pass},
+     {user, State#eirc_state.user},
+     {name, State#eirc_state.name},
+     {autoping, State#eirc_state.autoping},
+     {chprefix, State#eirc_state.chprefix},
+     {channels, eirc_chan:to_proplist(State#eirc_state.channels)},
+     {network, State#eirc_state.network},
+     {login_time, State#eirc_state.login_time},
+     {debug, State#eirc_state.debug}].
+
 
 %% =============================================================================
 %% Behaviour callback API
@@ -95,10 +110,8 @@ init(Options) ->
     Handlers = proplists:get_value(event_handlers, Options, []),
     Autoping = proplists:get_value(autoping, Options, true),
     Debug = proplists:get_value(debug, Options, false),
-    lists:foreach(fun(Handler) when is_pid(Handler) ->
-			  erlang:monitor(process, Handler)
-		  end, Handlers),
-    {ok, #eirc_state{ event_handlers = Handlers, autoping = Autoping,
+    NHandlers = lists:foldl(fun do_add_handler/2, [], Handlers),
+    {ok, #eirc_state{ event_handlers = NHandlers, autoping = Autoping,
 		      logged_on = false, debug = Debug, 
 		      channels = eirc_chan:init() }}.
 
@@ -204,7 +217,6 @@ handle_info({tcp, _, Data}, State) ->
     end;
 
 handle_info({'DOWN', _, _, Pid, _}, State) ->
-    io:format("Removing handler: ~p ~n",[Pid]),
     NHandlers = do_remove_handler(Pid, State#eirc_state.event_handlers),
     {noreply, State#eirc_state{ event_handlers = NHandlers }};
 
@@ -216,7 +228,6 @@ handle_info(_, State) ->
 
 %% TERMINATE
 terminate(_Reason, _State) ->
-    io:format("Terminating!~n"),
     ok.
 
 %% CODE CHANGE
