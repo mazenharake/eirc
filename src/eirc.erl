@@ -77,6 +77,9 @@ privmsg(Client, Nick, Msg) ->
 notice(Client, Nick, Msg) ->
     eirc_cl:msg(Client, notice, Nick, Msg).
 
+ctcp(Client, Nick, Msg) ->
+    eirc_cl:msg(Client, ctcp, Nick, Msg).
+
 cmd(Client, RawCmd) ->
     eirc_cl:cmd(Client, RawCmd).
 

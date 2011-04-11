@@ -158,7 +158,8 @@ handle_call({quit, QuitMsg}, _From, State) ->
 handle_call({msg, Type, Nick, Msg}, _From, State) ->
     Data = case Type of
 	       privmsg -> ?PRIVMSG(Nick, Msg);
-	       notice -> ?NOTICE(Nick, Msg)
+	       notice -> ?NOTICE(Nick, Msg);
+	       ctcp -> ?NOTICE(Nick, ?CTCP(Msg))
 	   end,
     gen_tcp:send(State#eirc_state.socket, Data),
     {reply, ok, State};
@@ -205,7 +206,7 @@ handle_info({tcp, _, Data}, State) ->
     case eirc_lib:parse(Data) of
 	#ircmsg{ ctcp = true } = Msg ->
 	    send_event(Msg, State),
-	    handle_ctcp(Msg, State);
+	    {noreply, State};
 	#ircmsg{ ctcp = false } = Msg ->
 	    send_event(Msg, State),
 	    handle_data(Msg, State);
@@ -324,24 +325,6 @@ handle_data(#ircmsg{ cmd = "ERROR", args = ["Closing Link"++_] }, State) ->
 
 %% "catch-all", period. (DEV)
 handle_data(_Msg, State) ->
-    {noreply, State}.
-
-%% =============================================================================
-%% CTCP
-%% =============================================================================
-handle_ctcp(#ircmsg{ cmd = "VERSION" } = Msg, State) ->
-    gen_tcp:send(State#eirc_state.socket, ?NOTICE(Msg#ircmsg.nick, 
-					     ?RPL_CTCP_VERSION)),
-    {noreply, State};
-handle_ctcp(#ircmsg{ cmd = "TIME" } = Msg, State) ->
-    gen_tcp:send(State#eirc_state.socket, ?NOTICE(Msg#ircmsg.nick, 
-					     ?RPL_CTCP_TIME)), 
-    {noreply, State};
-handle_ctcp(#ircmsg{ cmd = "PING", args = [Timestamp] } = Msg, State) ->
-    gen_tcp:send(State#eirc_state.socket, 
-		 ?NOTICE(Msg#ircmsg.nick, ?RPL_CTCP_PING(Timestamp))),
-    {noreply, State};
-handle_ctcp(_Msg, State) ->
     {noreply, State}.
 
 %% =============================================================================

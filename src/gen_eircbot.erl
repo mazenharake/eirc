@@ -33,6 +33,10 @@
 
 -record(st, { cb, cbstate, iphost, port, nick, clpid, exiting }).
 
+-define(CTCP_VERSION, "VERSION EIRC-BOT 0.0.1").
+-define(CTCP_TIME, "TIME  "++eirc_lib:ctcp_time(calendar:local_time())).
+-define(CTCP_PING(TS), "PING "++TS).
+
 %% =============================================================================
 %% Application API
 %% =============================================================================
@@ -86,7 +90,7 @@ handle_cast(_Cast, State) ->
     {no_reply, State}.
 
 handle_info(#ircmsg{} = IrcMsg, State) ->
-    case handle_ircmsg(IrcMsg, State) of
+    case safe_handle_ircmsg(IrcMsg, State) of
 	{ok, NCBState} ->
 	    {noreply, State#st{ cbstate = NCBState }};
 	{stop, Reason} ->
@@ -103,6 +107,23 @@ code_change(_OldVsn, State, _Extra) ->
 terminate(Reason, State) ->
     (State#st.cb)(terminate, [Reason, State#st.cbstate]).
 
+safe_handle_ircmsg(IrcMsg, State) ->
+    try
+	handle_ircmsg(IrcMsg, State)
+    catch
+	error:undef ->
+	    case erlang:get_stacktrace() of
+		[{_, on_ctcp, _}|_] ->
+		    handle_default_ctcp(IrcMsg, State),
+		    {ok, State#st.cbstate};
+		[{_, Cb, _}|_] when Cb == on_connect; Cb == on_text; Cb == on_notice;
+				    Cb == on_join; Cb == on_part; Cb == on_mode; 
+				    Cb == on_topic; Cb == handle_call -> 
+		    {ok, State#st.cbstate};
+		StackTrace ->
+		    erlang:error(undef, StackTrace)
+	    end
+    end.
 
 handle_ircmsg(#ircmsg{ cmd = ?RPL_WELCOME }, State) ->
     (State#st.cb)(on_connect, [State#st.cbstate]);
@@ -137,6 +158,16 @@ handle_ircmsg(IrcMsg, State) ->
     io:format("IRCMSG: ~1000p~n", [IrcMsg]),
     {ok, State#st.cbstate}.
 
+handle_default_ctcp(#ircmsg{ cmd = "VERSION" } = IrcMsg, State) ->
+    eirc_cl:msg(State#st.clpid, ctcp, IrcMsg#ircmsg.nick, ?CTCP_VERSION);
+handle_default_ctcp(#ircmsg{ cmd = "TIME" } = IrcMsg, State) ->
+    eirc_cl:msg(State#st.clpid, ctcp, IrcMsg#ircmsg.nick, ?CTCP_TIME);
+handle_default_ctcp(#ircmsg{ cmd = "PING", args = [Timestamp] } = IrcMsg, State) ->
+    eirc_cl:msg(State#st.clpid, ctcp, IrcMsg#ircmsg.nick, ?CTCP_PING(Timestamp));
+handle_default_ctcp(#ircmsg{ cmd = Cmd } = IrcMsg, State) ->
+    eirc_cl:msg(State#st.clpid, ctcp, IrcMsg#ircmsg.nick, Cmd++" N/A").
+
+    
 
 
 

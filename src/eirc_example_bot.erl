@@ -60,13 +60,18 @@ init(Client, _Args) ->
 on_connect(State) ->
     io:format("Bot logged on...~n"),
     BotNick = proplists:get_value(nick, eirc:state(State#botstate.cl)),
+
     {ok, State#botstate{ nick = BotNick }}.
 
-on_text("mazenharake", _, "!JOIN "++Channel, State) ->
+on_text(_, _, "!JOIN "++Channel, State) ->
     eirc:join(State#botstate.cl, Channel),
     {ok, State};
-on_text("mazenharake", _, "!PART "++Channel, State) ->
+on_text(_, _, "!PART "++Channel, State) ->
     eirc:part(State#botstate.cl, Channel),
+    {ok, State};
+on_text(_, _, "!CTCP "++Msg, State) ->
+    io:format("CTCP ~p >> ~p ~n",["mazenharake", Msg]),
+    eirc:ctcp(State#botstate.cl, "mazenharake", Msg),
     {ok, State};
 on_text(From, To, Text, State) ->
     io:format("TEXT: From (~p) To (~p) - ~p ~n", [From, To, Text]),
@@ -85,6 +90,9 @@ on_part(User, Channel, State) ->
     io:format("PART: (~p) ~p parted ~p~n", [State#botstate.nick, User, Channel]),
     {ok, State}.
 
+on_ctcp(User, "VERSION", _Args, State) ->
+    eirc:ctcp(State#botstate.cl, User, "VERSION "++?VERSION),
+    {ok, State};
 on_ctcp(User, Cmd, Args, State) ->
     io:format("CTCP: ~p:~p - ~p~n", [User, Cmd, Args]),
     {ok, State}.
@@ -98,10 +106,12 @@ on_topic(Nick, Channel, Topic, State) ->
     io:format("TOPIC: (~p) ~p set topic to: ~p~n", [Channel, Nick, Topic]),
     {ok, State}.
 
-handle_call(print_state, From, State) ->
+handle_call({msg, _To}, _From, State) ->    
+    {reply, ok, State};
+handle_call(print_state, _From, State) ->
     CState = eirc:state(State#botstate.cl),
     io:format("IRC Client State: ~n~p~n",[CState]),
-    {reply, From, State};
+    {reply, ok, State};
 handle_call({stop, QuitMsg}, _From, State) ->
     io:format("Stopping bot...~n"),
     eirc:quit(State#botstate.cl, QuitMsg),

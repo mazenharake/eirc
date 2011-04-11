@@ -47,12 +47,6 @@
 -define(PART(Chan), ?CMD(["PART ",Chan])).
 -define(QUIT(Msg), ?CMD(["QUIT :",Msg])).
 
-%% CTCP Responses
--define(RPL_CTCP_VERSION, ?CTCP("VERSION EIRC-BOT 0.0.1")).
--define(RPL_CTCP_TIME, ?CTCP("TIME "++eirc_lib:ctcp_time(
-					calendar:local_time()))).
--define(RPL_CTCP_PING(Timestamp), ?CTCP("PING "++Timestamp)).
-
 %% IRC Numeric Codes
 -define(RPL_WELCOME, "001").
 -define(RPL_YOURHOST, "002").
