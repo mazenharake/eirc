@@ -118,7 +118,7 @@ safe_handle_ircmsg(IrcMsg, State) ->
 		    {ok, State#st.cbstate};
 		[{_, Cb, _}|_] when Cb == on_connect; Cb == on_text; Cb == on_notice;
 				    Cb == on_join; Cb == on_part; Cb == on_mode; 
-				    Cb == on_topic; Cb == handle_call -> 
+				    Cb == on_topic; Cb == handle_call; Cb == terminate -> 
 		    {ok, State#st.cbstate};
 		StackTrace ->
 		    erlang:error(undef, StackTrace)
