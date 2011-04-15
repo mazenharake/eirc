@@ -33,7 +33,7 @@
 
 -export([init/2, on_connect/1, on_text/4, on_notice/4, on_join/3, on_part/3,
 	 on_ctcp/4, on_mode/5, on_topic/4, on_ping/1, on_nick/3, on_raw/3,
-	 on_kick/5, handle_call/3, terminate/2]).
+	 on_kick/5, on_quit/3, handle_call/3, terminate/2]).
 
 -compile(export_all).
 
@@ -116,6 +116,10 @@ on_kick(User, Channel, TargetUser, Reason, State) ->
 
 on_nick(OldNick, NewNick, State) ->
     io:format("NICK: ~p is now known as ~p~n",[OldNick, NewNick]),
+    {ok, State}.
+
+on_quit(Nick, QuitMsg, State) ->
+    io:format("QUIT: ~p quit (~1000p)~n",[Nick, QuitMsg]),
     {ok, State}.
 
 on_raw(Cmd, Args, State) ->

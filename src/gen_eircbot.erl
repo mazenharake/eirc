@@ -40,7 +40,8 @@
 -define(MISSING_CALLBACKS, Cb == on_connect; Cb == on_text; Cb == on_notice; 
 	    Cb == on_join; Cb == on_part; Cb == on_mode; Cb == on_topic; 
 	    Cb == on_ping; Cb == on_kick; Cb == on_nick;
-	    Cb == on_raw; Cb == handle_call; Cb == terminate).
+	    Cb == on_raw; Cb == on_quit; Cb == handle_call; 
+	    Cb == terminate).
 
 %% =============================================================================
 %% Application API
@@ -167,6 +168,10 @@ handle_ircmsg(#ircmsg{ cmd = "NICK" } = IrcMsg, State) ->
     Nick = IrcMsg#ircmsg.nick,
     [NewNick|_] = IrcMsg#ircmsg.args,
     (State#st.cb)(on_nick, [Nick, NewNick, State#st.cbstate]);
+handle_ircmsg(#ircmsg{ cmd = "QUIT" } = IrcMsg, State) ->
+    Nick = IrcMsg#ircmsg.nick,
+    QuitMsg = hd(IrcMsg#ircmsg.args),
+    (State#st.cb)(on_quit, [Nick, QuitMsg, State#st.cbstate]);
 handle_ircmsg(IrcMsg, State) ->
     (State#st.cb)(on_raw, [IrcMsg#ircmsg.cmd, tl(IrcMsg#ircmsg.args), State#st.cbstate]).
 
@@ -205,6 +210,7 @@ behaviour_info(callbacks) ->
      {on_ping, 1},
      {on_kick, 5},
      {on_nick, 3},
+     {on_quit, 3},
      {on_raw, 3},
      {handle_call, 3},
      {terminate, 2}].
