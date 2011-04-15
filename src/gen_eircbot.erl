@@ -37,6 +37,11 @@
 -define(CTCP_TIME, "TIME  "++eirc_lib:ctcp_time(calendar:local_time())).
 -define(CTCP_PING(TS), "PING "++TS).
 
+-define(MISSING_CALLBACKS, Cb == on_connect; Cb == on_text; Cb == on_notice; 
+	    Cb == on_join; Cb == on_part; Cb == on_mode; Cb == on_topic; 
+	    Cb == on_ping; Cb == on_kick; Cb == on_nick;
+	    Cb == on_raw; Cb == handle_call; Cb == terminate).
+
 %% =============================================================================
 %% Application API
 %% =============================================================================
@@ -116,9 +121,7 @@ safe_handle_ircmsg(IrcMsg, State) ->
 		[{_, on_ctcp, _}|_] ->
 		    handle_default_ctcp(IrcMsg, State),
 		    {ok, State#st.cbstate};
-		[{_, Cb, _}|_] when Cb == on_connect; Cb == on_text; Cb == on_notice;
-				    Cb == on_join; Cb == on_part; Cb == on_mode; 
-				    Cb == on_topic; Cb == handle_call; Cb == terminate -> 
+		[{_, Cb, _}|_] when ?MISSING_CALLBACKS -> 
 		    {ok, State#st.cbstate};
 		StackTrace ->
 		    erlang:error(undef, StackTrace)
@@ -154,9 +157,18 @@ handle_ircmsg(#ircmsg{ cmd = "TOPIC" } = IrcMsg, State) ->
     User = IrcMsg#ircmsg.nick,
     [Channel|Topic] = IrcMsg#ircmsg.args,
     (State#st.cb)(on_topic, [User, Channel, hd(Topic), State#st.cbstate]);
+handle_ircmsg(#ircmsg{ cmd = "PING" }, State) ->
+    (State#st.cb)(on_ping, [State#st.cbstate]);
+handle_ircmsg(#ircmsg{ cmd = "KICK" } = IrcMsg, State) ->
+    User = IrcMsg#ircmsg.nick,
+    [Channel, TargetUser, Reason|_] = IrcMsg#ircmsg.args,
+    (State#st.cb)(on_kick, [User, Channel, TargetUser, Reason, State#st.cbstate]);
+handle_ircmsg(#ircmsg{ cmd = "NICK" } = IrcMsg, State) ->
+    Nick = IrcMsg#ircmsg.nick,
+    [NewNick|_] = IrcMsg#ircmsg.args,
+    (State#st.cb)(on_nick, [Nick, NewNick, State#st.cbstate]);
 handle_ircmsg(IrcMsg, State) ->
-    io:format("IRCMSG: ~1000p~n", [IrcMsg]),
-    {ok, State#st.cbstate}.
+    (State#st.cb)(on_raw, [IrcMsg#ircmsg.cmd, tl(IrcMsg#ircmsg.args), State#st.cbstate]).
 
 handle_default_ctcp(#ircmsg{ cmd = "VERSION" } = IrcMsg, State) ->
     eirc_cl:msg(State#st.clpid, ctcp, IrcMsg#ircmsg.nick, ?CTCP_VERSION);
@@ -190,8 +202,9 @@ behaviour_info(callbacks) ->
      {on_ctcp, 4},
      {on_mode, 5},
      {on_topic, 4},
+     {on_ping, 1},
+     {on_kick, 5},
+     {on_nick, 3},
+     {on_raw, 3},
      {handle_call, 3},
-     {terminate, 2}];
-behaviour_info(_) -> undefined.
-
-    
+     {terminate, 2}].

@@ -32,7 +32,8 @@
 -include("eirc.hrl").
 
 -export([init/2, on_connect/1, on_text/4, on_notice/4, on_join/3, on_part/3,
-	 on_ctcp/4, on_mode/5, on_topic/4, handle_call/3, terminate/2]).
+	 on_ctcp/4, on_mode/5, on_topic/4, on_ping/1, on_nick/3, on_raw/3,
+	 on_kick/5, handle_call/3, terminate/2]).
 
 -compile(export_all).
 
@@ -60,7 +61,6 @@ init(Client, _Args) ->
 on_connect(State) ->
     io:format("Bot logged on...~n"),
     BotNick = proplists:get_value(nick, eirc:state(State#botstate.cl)),
-
     {ok, State#botstate{ nick = BotNick }}.
 
 on_text(_, _, "!JOIN "++Channel, State) ->
@@ -104,6 +104,22 @@ on_mode(ServerOrNick, TargetChanOrNick, ModeFlags, ModeParameters, State) ->
 
 on_topic(Nick, Channel, Topic, State) ->
     io:format("TOPIC: (~p) ~p set topic to: ~p~n", [Channel, Nick, Topic]),
+    {ok, State}.
+
+on_ping(State) ->
+    io:format("PING? PONG!~n"),
+    {ok, State}.
+
+on_kick(User, Channel, TargetUser, Reason, State) ->
+    io:format("KICK: ~p kicked ~p from ~p, reason: ~p~n", [User, TargetUser, Channel, Reason]),
+    {ok, State}.
+
+on_nick(OldNick, NewNick, State) ->
+    io:format("NICK: ~p is now known as ~p~n",[OldNick, NewNick]),
+    {ok, State}.
+
+on_raw(Cmd, Args, State) ->
+    io:format("RAW: ~p; ~1000p~n",[Cmd, Args]),
     {ok, State}.
 
 handle_call({msg, _To}, _From, State) ->    
