@@ -135,35 +135,35 @@ handle_ircmsg(#ircmsg{ ctcp = true } = IrcMsg, State) ->
     (State#st.cb)(on_ctcp, [IrcMsg#ircmsg.nick, IrcMsg#ircmsg.cmd,
 			    IrcMsg#ircmsg.args, State#st.cbstate]);
 handle_ircmsg(#ircmsg{ cmd = "PRIVMSG" } = IrcMsg, State) ->
-    From = IrcMsg#ircmsg.nick,
-    [To|Msg] = IrcMsg#ircmsg.args,
-    (State#st.cb)(on_text, [From, To, lists:flatten(Msg), State#st.cbstate]);
+    FromNick = IrcMsg#ircmsg.nick,
+    [ToNick|Msg] = IrcMsg#ircmsg.args,
+    (State#st.cb)(on_text, [FromNick, ToNick, lists:flatten(Msg), State#st.cbstate]);
 handle_ircmsg(#ircmsg{ cmd = "NOTICE" } = IrcMsg, State) ->
-    From = IrcMsg#ircmsg.nick,
-    [To|Msg] = IrcMsg#ircmsg.args,
-    (State#st.cb)(on_notice, [From, To, lists:flatten(Msg), State#st.cbstate]);
+    FromNick = IrcMsg#ircmsg.nick,
+    [ToNick|Msg] = IrcMsg#ircmsg.args,
+    (State#st.cb)(on_notice, [FromNick, ToNick, lists:flatten(Msg), State#st.cbstate]);
 handle_ircmsg(#ircmsg{ cmd = "JOIN" } = IrcMsg, State) ->
-    User = IrcMsg#ircmsg.nick,
+    Nick = IrcMsg#ircmsg.nick,
     Channel = hd(IrcMsg#ircmsg.args),
-    (State#st.cb)(on_join, [User, Channel, State#st.cbstate]);
+    (State#st.cb)(on_join, [Nick, Channel, State#st.cbstate]);
 handle_ircmsg(#ircmsg{ cmd = "PART" } = IrcMsg, State) ->
-    User = IrcMsg#ircmsg.nick,
+    Nick = IrcMsg#ircmsg.nick,
     Channel = hd(IrcMsg#ircmsg.args),
-    (State#st.cb)(on_part, [User, Channel, State#st.cbstate]);
+    (State#st.cb)(on_part, [Nick, Channel, State#st.cbstate]);
 handle_ircmsg(#ircmsg{ cmd = "MODE" } = IrcMsg, State) ->
     ServerOrNick = IrcMsg#ircmsg.nick,
     [ChanOrNick,Flags|Parameters] = IrcMsg#ircmsg.args,
     (State#st.cb)(on_mode, [ServerOrNick, ChanOrNick, Flags, Parameters, State#st.cbstate]);
 handle_ircmsg(#ircmsg{ cmd = "TOPIC" } = IrcMsg, State) ->
-    User = IrcMsg#ircmsg.nick,
+    Nick = IrcMsg#ircmsg.nick,
     [Channel|Topic] = IrcMsg#ircmsg.args,
-    (State#st.cb)(on_topic, [User, Channel, hd(Topic), State#st.cbstate]);
+    (State#st.cb)(on_topic, [Nick, Channel, hd(Topic), State#st.cbstate]);
 handle_ircmsg(#ircmsg{ cmd = "PING" }, State) ->
     (State#st.cb)(on_ping, [State#st.cbstate]);
 handle_ircmsg(#ircmsg{ cmd = "KICK" } = IrcMsg, State) ->
-    User = IrcMsg#ircmsg.nick,
+    Nick = IrcMsg#ircmsg.nick,
     [Channel, TargetUser, Reason|_] = IrcMsg#ircmsg.args,
-    (State#st.cb)(on_kick, [User, Channel, TargetUser, Reason, State#st.cbstate]);
+    (State#st.cb)(on_kick, [Nick, Channel, TargetUser, Reason, State#st.cbstate]);
 handle_ircmsg(#ircmsg{ cmd = "NICK" } = IrcMsg, State) ->
     Nick = IrcMsg#ircmsg.nick,
     [NewNick|_] = IrcMsg#ircmsg.args,
