@@ -38,17 +38,17 @@
 
 -compile(export_all).
 
--record(botstate, { cl, nick, waiting }).
+-record(botstate, { cl, nick }).
 
 -define(VERSION, "EIRC Example Bot 0.2").
 
-%% Options can contain: {local, Name::atom()}
-%% 
+%% Starts an IRC client and initialises this bot as the callback
 start_link(IpHost, Port, Nick, _Options, Args) ->
-    application:start(eirc),
-    Options = [{register, {local, ?MODULE}}, {callback, ?MODULE}],
+    application:start(eirc), 
+    Options = [{register, {local, ?MODULE}}, {callback, ?MODULE}], 
     gen_eircbot:start_link(IpHost, Port, Nick, Options, Args).
 
+%% Commands to control the bot from the shell.
 print_state() ->
     gen_eircbot:call(?MODULE, print_state).
 
@@ -58,81 +58,108 @@ msg(To, Msg) ->
 stop(QuitMsg) ->
     gen_eircbot:call(?MODULE, {stop, QuitMsg}).
 
+%% eIRCbot callbacks
+%% This is called to initialise a state and is before a connections is opened to
+%% the server
 init(Client, _Args) ->
     io:format("Initiating bot...~n"),
     {ok, #botstate{ cl = Client }}.
 
+%% Triggers when the bot successfully established a connection to the IRC server
 on_connect(IpHost, Port, State) ->
     io:format("Connected to ~p:~p~n", [IpHost, Port]),
     {ok, State}.
 
+%% (note: 5 args) Triggers when the client sends the nick user pass arguments to
+%% the server
 on_logon(_Pass, Nick, _User, _Name, State) ->
     io:format("Logging in as ~p~n", [Nick]),
     {ok, State#botstate{ nick = Nick }}.
 
+%% (note: 1 arg) Triggers when the bot has successfully logged in (when the
+%% clients receives the WELCOME message code from the irc server)
 on_logon(State) ->
     io:format("Login successful~n"),
     {ok, State}.
 
-on_text(_, _, "!JOIN "++Channel, State) ->
+%% Triggered when someone sends a message to the bot. This can be either a user
+%% or a channel sending the message
+on_text(_From, _To, "!JOIN "++Channel, State) ->
     eirc:join(State#botstate.cl, Channel),
     {ok, State};
 on_text(_, _, "!PART "++Channel, State) ->
     eirc:part(State#botstate.cl, Channel),
     {ok, State};
-on_text(_, _, "!CTCP "++Msg, State) ->
-    io:format("CTCP ~p >> ~p ~n",["mazenharake", Msg]),
-    eirc:ctcp(State#botstate.cl, "mazenharake", Msg),
-    {ok, State};
 on_text(From, To, Text, State) ->
     io:format("TEXT: From (~p) To (~p) - ~p ~n", [From, To, Text]),
-    eirc:privmsg(State#botstate.cl, From, io_lib:format("You sent me: \"~s\"",[Text])),
     {ok, State}.
 
+%% Like on_text but triggers on NOTICE messages instead
 on_notice(From, To, Text, State) ->
     io:format("NOTICE: From (~p) To (~p) - ~p ~n", [From, To, Text]),
     {ok, State}.
 
+%% Triggers when someone or the bot joins a channel
 on_join(User, Channel, State) ->
     io:format("JOIN: ~p joined ~p~n", [User, Channel]),
     {ok, State}.
 
+%% The opposite of on_join. User could be the bot
 on_part(User, Channel, State) ->
     io:format("PART: (~p) ~p parted ~p~n", [State#botstate.nick, User, Channel]),
     {ok, State}.
 
+%% Triggers when a CTCP request is sent to the bot. If these callbacks are *not*
+%% implemented then the behaviour will reply with standard responses for the
+%% VERSION, TIME and PING CTCP Requests.
 on_ctcp(User, "VERSION", _Args, State) ->
+    %% The VERSION requests needs a reply thats starts with "VERSION " and then
+    %% Any string to tell the version. This "overrides" the behaviours response
     eirc:ctcp(State#botstate.cl, User, "VERSION "++?VERSION),
     {ok, State};
 on_ctcp(User, Cmd, Args, State) ->
     io:format("CTCP: ~p:~p - ~p~n", [User, Cmd, Args]),
     {ok, State}.
 
+%% Triggers when the Server or a User sets a mode on either a User or a
+%% Channel. It is up to this callback to make sense of the modes. The important
+%% modes are +/-b for ban, +/-v for voice and +/-o for operatior.
 on_mode(ServerOrNick, TargetChanOrNick, ModeFlags, ModeParameters, State) ->
     io:format("MODE: ~p sets ~p on ~p (parameters: ~p)~n", 
 	      [ServerOrNick, ModeFlags, TargetChanOrNick, ModeParameters]),
     {ok, State}.
 
+%% Triggers when a topic is set in a channel that the bot is in
 on_topic(Nick, Channel, Topic, State) ->
     io:format("TOPIC: (~p) ~p set topic to: ~p~n", [Channel, Nick, Topic]),
     {ok, State}.
 
+%% Triggers when the servers sends a PING. If the autoping has been set to off
+%% then the bot has to reply to the ping here otherwise the client will be
+%% kicked out
 on_ping(State) ->
     io:format("PING? PONG!~n"),
     {ok, State}.
 
+%% Triggers when a user is kicked from a channel, User could be the bot
 on_kick(User, Channel, TargetUser, Reason, State) ->
     io:format("KICK: ~p kicked ~p from ~p, reason: ~p~n", [User, TargetUser, Channel, Reason]),
     {ok, State}.
 
+%% Triggers when someone (that the bot can "see" in a channel) changes nick, The
+%% user changing nick could be the bot
 on_nick(OldNick, NewNick, State) ->
     io:format("NICK: ~p is now known as ~p~n",[OldNick, NewNick]),
     {ok, State}.
 
+%% Triggers when someone (that the bot can "see" in a channel) quits from the
+%% server. The user quitting could be the bot
 on_quit(Nick, QuitMsg, State) ->
     io:format("QUIT: ~p quit (~1000p)~n",[Nick, QuitMsg]),
     {ok, State}.
 
+%% Any command that is not picked up by the behaviour can be received using this
+%% callback. This callback will be triggered for every event the server sends
 on_raw(Cmd, Args, State) ->
     io:format("RAW: ~p; ~1000p~n",[Cmd, Args]),
     {ok, State}.
@@ -152,137 +179,3 @@ handle_call({stop, QuitMsg}, _From, State) ->
 terminate(Reason, _State) ->
     io:format("Bot terminating ~p...~n", [Reason]),
     ok.
- 
-
-%% This happens when the bot gets a normal message sent to it
-%% The first argument in #ircmsg.args is very often the bot's own nickname but
-%% sometimes not. This is not consistent among servers so just ignore it.
-%% The second argument is the message string; if it starts with a "!" then this
-%% should be considered a command.
-handle_info(#ircmsg{ cmd = "PRIVMSG", args = [_,[$!|BotCmd]] } = IMsg, State) ->
-    io:format("CMD<~s> !~s~n",[IMsg#ircmsg.nick, BotCmd]),
-    NState = do_cmd(State, IMsg#ircmsg{ args = string:tokens(BotCmd," ") }),
-    {noreply, NState};
-
-%% Any other normal message is sent here... reply with an error
-handle_info(#ircmsg{ cmd = "PRIVMSG" } = IMsg, State) ->
-    error_response(State, IMsg),
-    {noreply, State};
-
-%% If a pid exits normally (see do_cmd further down) then that is all good
-handle_info({'EXIT', _Pid, normal}, State) ->
-    {noreply, State};
-
-%% If a pid crashes then check if there is a user waiting for a response and if
-%% so then reply the error to that user. In this simple bot there will always be
-%% someone waiting but you get the idea.
-handle_info({'EXIT', Pid, Reason}, State) ->
-    case lists:keysearch(Pid, 1, State#botstate.waiting) of
-	{value, {Pid, IMsg}} ->
-	    eirc:privmsg(State#botstate.cl, IMsg#ircmsg.nick, 
-			 io_lib:format("ERROR: ~1000p",[Reason])),
-	    NWaiting = lists:keydelete(Pid, 1, State#botstate.waiting),
-	    {noreply, State#botstate{ waiting = NWaiting }};
-	false ->
-	    {noreply, State}
-    end;
-
-%% If we get a message from a pid containing 'response' then this is a pid
-%% replying back after it has finished its work. Check if there is a user
-%% waiting for a response and send the response back
-handle_info({response, Pid, Result}, State) ->
-    case lists:keysearch(Pid, 1, State#botstate.waiting) of
-	{value, {Pid, IMsg}} ->
-	    eirc:privmsg(State#botstate.cl, IMsg#ircmsg.nick,
-			 io_lib:format("~1000p",[Result])),
-	    NWaiting = lists:keydelete(Pid, 1, State#botstate.waiting),
-            {noreply, State#botstate{ waiting = NWaiting }};
-	false ->
-	    {noreply, State}
-    end;
-
-%% Anything else... just ignore it!
-handle_info(_, State) ->
-    {noreply, State}.
-
-%terminate(_, _) ->
-%    ok.
-
-%% This is where all the commands are handled. This is a _very_ basic way of
-%% checking commands. Probably this would be more advanced based on what the
-%% bot is suppose to do. Only the first part of the message is read here.
-
-%% We got a command asking for VERSION, simply reply
-do_cmd(State, #ircmsg{ args = ["VERSION"|_] } = IMsg) ->
-    eirc:privmsg(State#botstate.cl, IMsg#ircmsg.nick, ?VERSION),
-    State;
-
-%% NODE query, reply with node name
-do_cmd(State, #ircmsg{ args = ["NODE"|_] } = IMsg) ->
-    eirc:privmsg(State#botstate.cl, IMsg#ircmsg.nick, atom_to_list(node())),
-    State;
-
-%% We got a request to do a heavy operation and calculate something. the
-%% intention here is to demonstrate the asynch way of responding to a message
-%% Receive the event and spawn a process to do the heavy calculation (or what
-%% ever it is that might take a long time) and put that process in a waiting
-%% list to indicate that the client is expecting as resposne. See handle_info
-%% above which accepts a response-tuple.
-do_cmd(State, #ircmsg{ args = ["CALCULATE"|_] } = IMsg) ->
-    Pid = spawn_link(?MODULE, calculate, [self()]),
-    State#botstate{ waiting = [{Pid, IMsg}|State#botstate.waiting] };
-
-%% Same as previous clause but this one intentionally fails. See the 
-%% handle_info above which deals with trapping exits
-do_cmd(State, #ircmsg{ args = ["CRASH"|_] } = IMsg) ->
-    Pid = spawn_link(?MODULE, crash, [self()]),
-    State#botstate{ waiting = [{Pid, IMsg}|State#botstate.waiting] };
-
-%% This demonstrates how to create a non-secure implementation of calling an
-%% MFA. No checks!! (try init:stop() :))
-do_cmd(State, #ircmsg{ args = ["MFA",StrM,StrF|UnparsedArgs] } = IMsg) ->
-    try
-	M = list_to_atom(StrM),
-	F = list_to_atom(StrF),
-	StrArgs = tl(lists:flatten([" "++Arg||Arg<-UnparsedArgs]))++".",
-	case erl_scan:string(StrArgs) of
-	    {ok, Tokens, _} ->
-		{ok, Args} = erl_parse:parse_term(Tokens),
-		R = erlang:apply(M,F,Args),
-		eirc:privmsg(State#botstate.cl, IMsg#ircmsg.nick,
-			     io_lib:format("~1000p",[R]));
-	    Error ->
-		exit({argument_error,Error})
-	end
-    catch
-	Class:Reason ->
-	    eirc:privmsg(State#botstate.cl, IMsg#ircmsg.nick,
-			 io_lib:format("ERROR: ~p:~1000p - ~1000p",
-				       [Class,Reason,erlang:get_stacktrace()]))
-    end,
-    State;
-
-%% Everything else is ignored and an error is sent
-do_cmd(State, IMsg) ->
-    error_response(State, IMsg),
-    State.
-
-%% Sends a message to the user saying the command was unknown
-error_response(State, IMsg) ->
-    eirc:privmsg(State#botstate.cl, IMsg#ircmsg.nick, "ERROR: UNKNOWN COMMAND").
-
-%% This is the entry point for the process called when specifying the 
-%% "CALCULATE" command to this bot.
-calculate(Parent) ->
-    timer:sleep(2000),
-    Parent ! {response, self(), random:uniform()}.
-
-%% Entry point for pid spawned in the "CRASH" command.
-crash(_Parent) ->
-    timer:sleep(2000),
-    exit({error, a_crash}).
-
-%% Waits until the fun F is true or times out.
-wait(N, _) when N =< 0 -> exit(timeout);
-wait(N, F) ->
-    case F() of	true -> ok; false -> timer:sleep(500), wait(N-500, F) end.
