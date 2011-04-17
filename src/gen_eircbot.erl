@@ -31,7 +31,7 @@
 %% -export([connect/4, connect_link/4, disconnect/2]).
 -compile(export_all).
 
--record(st, { cb, cbstate, iphost, port, nick, clpid, exiting }).
+-record(st, { cbmod, cbstate, iphost, port, nick, clpid, exiting, logged_on }).
 
 -define(CTCP_VERSION, "VERSION EIRC-BOT 0.0.1").
 -define(CTCP_TIME, "TIME  "++eirc_lib:ctcp_time(calendar:local_time())).
@@ -48,7 +48,7 @@
 %% =============================================================================
 start_link(IpHost, Port, Nick, Options, Args) ->
     CBMod = proplists:get_value(callback, Options),
-    InitArg = {callback(CBMod), IpHost, Port, Nick, Options, Args},
+    InitArg = {CBMod, IpHost, Port, Nick, Options, Args},
     case proplists:get_value(register, Options) of
 	undefined ->
 	    gen_server:start_link(?MODULE, InitArg, []);
@@ -62,46 +62,27 @@ call(Server, Msg) ->
 call(Server, Msg, Timeout) ->
     gen_server:call(Server, Msg, Timeout).
 
-init({CB, IpHost, Port, Nick, Options, Args}) ->
+init({CBMod, IpHost, Port, Nick, Options, Args}) ->
     process_flag(trap_exit, true),
     {ok, ClPid} = eirc_cl:start_link(Options),
     eirc_cl:add_handler(ClPid, self()),
     Pass = proplists:get_value(logon_pass, Options, "nopass"),
     User = proplists:get_value(logon_user, Options, Nick),
     Name = proplists:get_value(logon_name, Options, "No Name"),
-    case CB(init, [ClPid, Args]) of
-	{ok, State} ->
-	    case eirc_cl:connect(ClPid, IpHost, Port) of
-		ok -> 
-		    eirc_cl:logon(ClPid, Pass, Nick, User, Name),
-		    {ok, #st{ cb = CB, cbstate = State, iphost = IpHost, 
-			      port = Port, nick = Nick, clpid = ClPid,
-			      exiting = false }};
-		Error ->
-		    {stop, Error}
-	    end;
-	{stop, Reason} ->
-	    {stop, Reason}
-    end.
+    {ok, State} = safe_callback({init, CBMod, [ClPid, Args]}, undefined),
+    ok = eirc_cl:connect(ClPid, IpHost, Port),
+    {ok, State2} = safe_callback({on_connect, [IpHost, Port]}, State),
+    ok = eirc_cl:logon(ClPid, Pass, Nick, User, Name),
+    {ok, _State3} = safe_callback({on_logon, [Pass, Nick, User, Name]}, State2).
 
 handle_call(Call, From, State) ->
-    case (State#st.cb)(handle_call, [Call, From, State#st.cbstate]) of
-	{reply, Reply, NCBState} ->
-	    {reply, Reply, State#st{ cbstate = NCBState }};
-	{stop, Reason, Reply, NCBState} ->
-	    {stop, Reason, Reply, State#st{ cbstate = NCBState }}
-    end.
+    safe_callback({handle_call, [Call, From]}, State).
 	 
 handle_cast(_Cast, State) ->
     {no_reply, State}.
 
 handle_info(#ircmsg{} = IrcMsg, State) ->
-    case safe_handle_ircmsg(IrcMsg, State) of
-	{ok, NCBState} ->
-	    {noreply, State#st{ cbstate = NCBState }};
-	{stop, Reason} ->
-	    {stop, Reason, State}
-    end;
+    safe_callback(IrcMsg, State);
 handle_info({'EXIT', Pid, normal}, #st{ clpid = Pid } = State) ->
     {stop, normal, State};
 handle_info(_Msg, State) ->
@@ -111,69 +92,82 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 terminate(Reason, State) ->
-    (State#st.cb)(terminate, [Reason, State#st.cbstate]).
+    safe_callback({terminate, [Reason]}, State).
 
-safe_handle_ircmsg(IrcMsg, State) ->
+safe_callback(Args, State) ->
     try
-	handle_ircmsg(IrcMsg, State)
+	callback(get_call_tuple(Args, State))
     catch
+	throw:{stop, normal, NState} ->
+	    {stop, normal, NState};
+	throw:{stop, Reason, NState} ->
+	    {stop, Reason, NState};
 	error:undef ->
 	    case erlang:get_stacktrace() of
 		[{_, on_ctcp, _}|_] ->
-		    handle_default_ctcp(IrcMsg, State),
-		    {ok, State#st.cbstate};
+		    handle_default_ctcp(Args, State),
+		    {noreply, State};
 		[{_, Cb, _}|_] when ?MISSING_CALLBACKS -> 
-		    {ok, State#st.cbstate};
+		    {noreply, State};
 		StackTrace ->
 		    erlang:error(undef, StackTrace)
 	    end
     end.
 
-handle_ircmsg(#ircmsg{ cmd = ?RPL_WELCOME }, State) ->
-    (State#st.cb)(on_connect, [State#st.cbstate]);
-handle_ircmsg(#ircmsg{ ctcp = true } = IrcMsg, State) ->
-    (State#st.cb)(on_ctcp, [IrcMsg#ircmsg.nick, IrcMsg#ircmsg.cmd,
-			    IrcMsg#ircmsg.args, State#st.cbstate]);
-handle_ircmsg(#ircmsg{ cmd = "PRIVMSG" } = IrcMsg, State) ->
+get_call_tuple({init, CBMod, Args}, undefined) ->
+    {CBMod, init, Args};
+get_call_tuple({on_connect, Args}, State) ->
+    {State, on_connect, Args};
+get_call_tuple({on_logon, Args}, State) ->
+    {State, on_logon, Args};
+get_call_tuple({handle_call, Args}, State) ->
+    {State, handle_call, Args};
+get_call_tuple({terminate, Args}, State) ->
+    {State, terminate, Args};
+get_call_tuple(#ircmsg{ cmd = ?RPL_WELCOME } = IrcMsg, State) ->
+    {State, on_logon, IrcMsg};
+get_call_tuple(#ircmsg{ ctcp = true } = IrcMsg, State) ->
+    {State, on_ctcp, [IrcMsg#ircmsg.nick, IrcMsg#ircmsg.cmd, IrcMsg#ircmsg.args]};
+get_call_tuple(#ircmsg{ cmd = "PRIVMSG" } = IrcMsg, State) ->
     FromNick = IrcMsg#ircmsg.nick,
     [ToNick|Msg] = IrcMsg#ircmsg.args,
-    (State#st.cb)(on_text, [FromNick, ToNick, lists:flatten(Msg), State#st.cbstate]);
-handle_ircmsg(#ircmsg{ cmd = "NOTICE" } = IrcMsg, State) ->
+    {State, on_text, [FromNick, ToNick, lists:flatten(Msg)]};
+get_call_tuple(#ircmsg{ cmd = "NOTICE" } = IrcMsg, State) ->
     FromNick = IrcMsg#ircmsg.nick,
     [ToNick|Msg] = IrcMsg#ircmsg.args,
-    (State#st.cb)(on_notice, [FromNick, ToNick, lists:flatten(Msg), State#st.cbstate]);
-handle_ircmsg(#ircmsg{ cmd = "JOIN" } = IrcMsg, State) ->
+    {State, on_notice, [FromNick, ToNick, lists:flatten(Msg)]};
+get_call_tuple(#ircmsg{ cmd = "JOIN" } = IrcMsg, State) ->
     Nick = IrcMsg#ircmsg.nick,
     Channel = hd(IrcMsg#ircmsg.args),
-    (State#st.cb)(on_join, [Nick, Channel, State#st.cbstate]);
-handle_ircmsg(#ircmsg{ cmd = "PART" } = IrcMsg, State) ->
+    {State, on_join, [Nick, Channel]};
+get_call_tuple(#ircmsg{ cmd = "PART" } = IrcMsg, State) ->
     Nick = IrcMsg#ircmsg.nick,
     Channel = hd(IrcMsg#ircmsg.args),
-    (State#st.cb)(on_part, [Nick, Channel, State#st.cbstate]);
-handle_ircmsg(#ircmsg{ cmd = "MODE" } = IrcMsg, State) ->
+    {State, on_part, [Nick, Channel]};
+get_call_tuple(#ircmsg{ cmd = "MODE" } = IrcMsg, State) ->
     ServerOrNick = IrcMsg#ircmsg.nick,
     [ChanOrNick,Flags|Parameters] = IrcMsg#ircmsg.args,
-    (State#st.cb)(on_mode, [ServerOrNick, ChanOrNick, Flags, Parameters, State#st.cbstate]);
-handle_ircmsg(#ircmsg{ cmd = "TOPIC" } = IrcMsg, State) ->
+    {State, on_mode, [ServerOrNick, ChanOrNick, Flags, Parameters]};
+get_call_tuple(#ircmsg{ cmd = "TOPIC" } = IrcMsg, State) ->
     Nick = IrcMsg#ircmsg.nick,
     [Channel|Topic] = IrcMsg#ircmsg.args,
-    (State#st.cb)(on_topic, [Nick, Channel, hd(Topic), State#st.cbstate]);
-handle_ircmsg(#ircmsg{ cmd = "PING" }, State) ->
-    (State#st.cb)(on_ping, [State#st.cbstate]);
-handle_ircmsg(#ircmsg{ cmd = "KICK" } = IrcMsg, State) ->
+    {State, on_topic, [Nick, Channel, hd(Topic)]};
+get_call_tuple(#ircmsg{ cmd = "PING" }, State) ->
+    {State, on_ping, [State#st.cbstate]};
+get_call_tuple(#ircmsg{ cmd = "KICK" } = IrcMsg, State) ->
     Nick = IrcMsg#ircmsg.nick,
     [Channel, TargetUser, Reason|_] = IrcMsg#ircmsg.args,
-    (State#st.cb)(on_kick, [Nick, Channel, TargetUser, Reason, State#st.cbstate]);
-handle_ircmsg(#ircmsg{ cmd = "NICK" } = IrcMsg, State) ->
+    {State, on_kick, [Nick, Channel, TargetUser, Reason]};
+get_call_tuple(#ircmsg{ cmd = "NICK" } = IrcMsg, State) ->
     Nick = IrcMsg#ircmsg.nick,
     [NewNick|_] = IrcMsg#ircmsg.args,
-    (State#st.cb)(on_nick, [Nick, NewNick, State#st.cbstate]);
-handle_ircmsg(#ircmsg{ cmd = "QUIT" } = IrcMsg, State) ->
+    {State, on_nick, [Nick, NewNick]};
+get_call_tuple(#ircmsg{ cmd = "QUIT" } = IrcMsg, State) ->
     Nick = IrcMsg#ircmsg.nick,
     QuitMsg = hd(IrcMsg#ircmsg.args),
-    (State#st.cb)(on_quit, [Nick, QuitMsg, State#st.cbstate]);
-handle_ircmsg(IrcMsg, State) ->
-    (State#st.cb)(on_raw, [IrcMsg#ircmsg.cmd, tl(IrcMsg#ircmsg.args), State#st.cbstate]).
+    {State, on_quit, [Nick, QuitMsg]};
+get_call_tuple(IrcMsg, State) ->
+    {State, on_raw, IrcMsg}.
 
 handle_default_ctcp(#ircmsg{ cmd = "VERSION" } = IrcMsg, State) ->
     eirc_cl:msg(State#st.clpid, ctcp, IrcMsg#ircmsg.nick, ?CTCP_VERSION);
@@ -184,33 +178,65 @@ handle_default_ctcp(#ircmsg{ cmd = "PING", args = [Timestamp] } = IrcMsg, State)
 handle_default_ctcp(#ircmsg{ cmd = Cmd } = IrcMsg, State) ->
     eirc_cl:msg(State#st.clpid, ctcp, IrcMsg#ircmsg.nick, Cmd++" N/A").
 
-    
 
-
-
-
-callback(Module) ->
-    fun(Function, Args) ->
-	    erlang:apply(Module, Function, Args)
-    end.
+callback({CBMod, init, [ClPid, Args]}) ->
+    case erlang:apply(CBMod, init, [ClPid, Args]) of
+	{ok, CBState} ->
+	    {ok, #st{ clpid = ClPid, cbmod = CBMod, cbstate = CBState }};
+	{stop, Reason} ->
+	    throw({stop, Reason, undefined})
+    end;
+callback({State, on_connect, [IpHost, Port] = Args}) ->
+    case erlang:apply(State#st.cbmod, on_connect, Args++[State#st.cbstate]) of
+	{ok, CBState} ->
+	    {ok, State#st{ cbstate = CBState, iphost = IpHost, port = Port }};
+	{stop, Reason, CBState} ->
+	    throw({stop, Reason, State#st{ cbstate = CBState }})
+    end;
+callback({State, on_logon, [_Pass, _Nick, _User, _Name] = Args}) ->
+    case erlang:apply(State#st.cbmod, on_logon, Args++[State#st.cbstate]) of
+	{ok, CBState} ->
+	    {ok, State#st{ cbstate = CBState }};
+	{stop, Reason, CBState} ->
+	    throw({stop, Reason, State#st{ cbstate = CBState }})
+    end;
+callback({State, handle_call, Args}) ->
+    case erlang:apply(State#st.cbmod, handle_call, Args++[State#st.cbstate]) of
+	{reply, Reply, CBState} ->
+	    {reply, Reply, State#st{ cbstate = CBState }};
+	{stop, Reason, Reply, CBState} ->
+	    {stop, Reason, Reply, State#st{ cbstate = CBState }}
+    end;
+callback({State, terminate, Args}) ->
+    (catch erlang:apply(State#st.cbmod, terminate, Args++[State#st.cbstate])),
+    ok;
+callback({State, on_logon, IrcMsg}) ->
+    case erlang:apply(State#st.cbmod, on_logon, [State#st.cbstate]) of
+	{ok, CBState} ->
+	    callback({State#st{ cbstate = CBState }, on_raw, IrcMsg});
+	{stop, Reason, CBState} ->
+	    throw({stop, Reason, State#st{ cbstate = CBState }})
+    end;
+callback({State, on_raw, IrcMsg}) ->
+    case erlang:apply(State#st.cbmod, on_raw, [IrcMsg#ircmsg.cmd, State#st.cbstate]) of
+	{ok, CBState} ->
+	    {noreply, State#st{ cbstate = CBState }};
+	{stop, Reason, CBState} ->
+	    throw({stop, Reason, State#st{ cbstate = CBState }})
+    end;
+callback({State, CBFunction, Args}) ->
+    case erlang:apply(State#st.cbmod, CBFunction, Args++[State#st.cbstate]) of
+	{ok, CBState} ->
+	    {noreply, State#st{ cbstate = CBState }};
+	{stop, Reason, CBState} ->
+	    throw({stop, Reason, State#st{ cbstate = CBState }})
+    end.    
 
 %% =============================================================================
 %% Behaviour API
 %% =============================================================================
 behaviour_info(callbacks) ->
-    [{init, 2},
-     {on_connect, 1},
-     {on_text, 4},
-     {on_notice, 4},
-     {on_join, 3},
-     {on_part, 3},
-     {on_ctcp, 4},
-     {on_mode, 5},
-     {on_topic, 4},
-     {on_ping, 1},
-     {on_kick, 5},
-     {on_nick, 3},
-     {on_quit, 3},
-     {on_raw, 3},
-     {handle_call, 3},
-     {terminate, 2}].
+    [{init, 2}, {on_connect, 3}, {on_logon, 5}, {on_logon, 1}, {on_text, 4}, {on_notice, 4},
+     {on_join, 3}, {on_part, 3}, {on_ctcp, 4}, {on_mode, 5}, {on_topic, 4},
+     {on_ping, 1}, {on_kick, 5}, {on_nick, 3}, {on_quit, 3}, {on_ctcp, 4},
+     {on_raw, 3}, {handle_call, 3}, {terminate, 2}].

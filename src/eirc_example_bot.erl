@@ -31,9 +31,10 @@
 
 -include("eirc.hrl").
 
--export([init/2, on_connect/1, on_text/4, on_notice/4, on_join/3, on_part/3,
-	 on_ctcp/4, on_mode/5, on_topic/4, on_ping/1, on_nick/3, on_raw/3,
-	 on_kick/5, on_quit/3, handle_call/3, terminate/2]).
+-export([init/2, on_connect/3, on_logon/5, on_logon/1, on_text/4, on_notice/4,
+	 on_join/3, on_part/3, on_ctcp/4, on_mode/5, on_topic/4, on_ping/1,
+	 on_nick/3, on_raw/3, on_kick/5, on_quit/3, handle_call/3,
+	 terminate/2]).
 
 -compile(export_all).
 
@@ -51,6 +52,9 @@ start_link(IpHost, Port, Nick, _Options, Args) ->
 print_state() ->
     gen_eircbot:call(?MODULE, print_state).
 
+msg(To, Msg) ->
+    gen_eircbot:call(?MODULE, {msg, To, Msg}).
+
 stop(QuitMsg) ->
     gen_eircbot:call(?MODULE, {stop, QuitMsg}).
 
@@ -58,10 +62,17 @@ init(Client, _Args) ->
     io:format("Initiating bot...~n"),
     {ok, #botstate{ cl = Client }}.
 
-on_connect(State) ->
-    io:format("Bot logged on...~n"),
-    BotNick = proplists:get_value(nick, eirc:state(State#botstate.cl)),
-    {ok, State#botstate{ nick = BotNick }}.
+on_connect(IpHost, Port, State) ->
+    io:format("Connected to ~p:~p~n", [IpHost, Port]),
+    {ok, State}.
+
+on_logon(_Pass, Nick, _User, _Name, State) ->
+    io:format("Logging in as ~p~n", [Nick]),
+    {ok, State#botstate{ nick = Nick }}.
+
+on_logon(State) ->
+    io:format("Login successful~n"),
+    {ok, State}.
 
 on_text(_, _, "!JOIN "++Channel, State) ->
     eirc:join(State#botstate.cl, Channel),
@@ -126,7 +137,8 @@ on_raw(Cmd, Args, State) ->
     io:format("RAW: ~p; ~1000p~n",[Cmd, Args]),
     {ok, State}.
 
-handle_call({msg, _To}, _From, State) ->    
+handle_call({msg, To, Msg}, _From, State) ->
+    eirc_cl:msg(State#botstate.cl, privmsg, To, Msg),
     {reply, ok, State};
 handle_call(print_state, _From, State) ->
     CState = eirc:state(State#botstate.cl),
@@ -141,7 +153,6 @@ terminate(Reason, _State) ->
     io:format("Bot terminating ~p...~n", [Reason]),
     ok.
  
-
 
 %% This happens when the bot gets a normal message sent to it
 %% The first argument in #ircmsg.args is very often the bot's own nickname but
