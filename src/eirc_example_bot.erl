@@ -165,7 +165,7 @@ on_raw(Cmd, Args, State) ->
     {ok, State}.
 
 handle_call({msg, To, Msg}, _From, State) ->
-    eirc_cl:msg(State#botstate.cl, privmsg, To, Msg),
+    eirc:privmsg(State#botstate.cl, To, Msg),
     {reply, ok, State};
 handle_call(print_state, _From, State) ->
     CState = eirc:state(State#botstate.cl),

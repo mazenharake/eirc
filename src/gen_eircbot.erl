@@ -107,7 +107,8 @@ safe_callback(Args, State) ->
 		[{_, on_ctcp, _}|_] ->
 		    handle_default_ctcp(Args, State),
 		    {noreply, State};
-		[{_, Cb, _}|_] when ?MISSING_CALLBACKS -> 
+		[{Mod, Cb, _}|_] when ?MISSING_CALLBACKS -> 
+		    error_logger:warning_report([{unexported_callback, {Mod, Cb}}]),
 		    {noreply, State};
 		StackTrace ->
 		    erlang:error(undef, StackTrace)
@@ -153,7 +154,7 @@ get_call_tuple(#ircmsg{ cmd = "TOPIC" } = IrcMsg, State) ->
     [Channel|Topic] = IrcMsg#ircmsg.args,
     {State, on_topic, [Nick, Channel, hd(Topic)]};
 get_call_tuple(#ircmsg{ cmd = "PING" }, State) ->
-    {State, on_ping, [State#st.cbstate]};
+    {State, on_ping, []};
 get_call_tuple(#ircmsg{ cmd = "KICK" } = IrcMsg, State) ->
     Nick = IrcMsg#ircmsg.nick,
     [Channel, TargetUser, Reason|_] = IrcMsg#ircmsg.args,
@@ -218,7 +219,8 @@ callback({State, on_logon, IrcMsg}) ->
 	    throw({stop, Reason, State#st{ cbstate = CBState }})
     end;
 callback({State, on_raw, IrcMsg}) ->
-    case erlang:apply(State#st.cbmod, on_raw, [IrcMsg#ircmsg.cmd, State#st.cbstate]) of
+    case erlang:apply(State#st.cbmod, on_raw, [IrcMsg#ircmsg.cmd, IrcMsg#ircmsg.args,
+					       State#st.cbstate]) of
 	{ok, CBState} ->
 	    {noreply, State#st{ cbstate = CBState }};
 	{stop, Reason, CBState} ->
