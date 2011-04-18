@@ -31,10 +31,10 @@
 
 -include("eirc.hrl").
 
--export([init/2, on_connect/3, on_logon/5, on_logon/1, on_text/4, on_notice/4,
-	 on_join/3, on_part/3, on_ctcp/4, on_mode/5, on_topic/4, on_ping/1,
-	 on_nick/3, on_raw/3, on_kick/5, on_quit/3, handle_call/3,
-	 terminate/2]).
+-export([init/2, on_connect/3, on_logon/5, on_logon/1, on_text/4,
+	 on_server_notice/3, on_notice/4, on_join/3, on_part/3, on_ctcp/4,
+	 on_mode/5, on_topic/4, on_ping/1, on_nick/3, on_raw/3, on_kick/5,
+	 on_quit/3, handle_call/3, terminate/2]).
 
 -compile(export_all).
 
@@ -94,7 +94,12 @@ on_text(From, To, Text, State) ->
     io:format("TEXT: From (~p) To (~p) - ~p ~n", [From, To, Text]),
     {ok, State}.
 
-%% Like on_text but triggers on NOTICE messages instead
+%% Triggers when the server sends us a message and not another user
+on_server_notice(ServerName, Msg, State) ->
+    io:format("NOTICE (~p): ~1000p~n", [ServerName, Msg]),
+    {ok, State}.
+
+%% Like on_text but triggers on NOTICE messages instead, sent by a user
 on_notice(From, To, Text, State) ->
     io:format("NOTICE: From (~p) To (~p) - ~p ~n", [From, To, Text]),
     {ok, State}.

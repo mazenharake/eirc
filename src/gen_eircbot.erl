@@ -133,6 +133,10 @@ get_call_tuple(#ircmsg{ cmd = "PRIVMSG" } = IrcMsg, State) ->
     FromNick = IrcMsg#ircmsg.nick,
     [ToNick|Msg] = IrcMsg#ircmsg.args,
     {State, on_text, [FromNick, ToNick, lists:flatten(Msg)]};
+get_call_tuple(#ircmsg{ cmd = "NOTICE", nick = undefined } = IrcMsg, State) ->
+    Server = IrcMsg#ircmsg.server,
+    [_|Msg] = IrcMsg#ircmsg.args,
+    {State, on_server_notice, [Server, Msg]};
 get_call_tuple(#ircmsg{ cmd = "NOTICE" } = IrcMsg, State) ->
     FromNick = IrcMsg#ircmsg.nick,
     [ToNick|Msg] = IrcMsg#ircmsg.args,
@@ -238,7 +242,8 @@ callback({State, CBFunction, Args}) ->
 %% Behaviour API
 %% =============================================================================
 behaviour_info(callbacks) ->
-    [{init, 2}, {on_connect, 3}, {on_logon, 5}, {on_logon, 1}, {on_text, 4}, {on_notice, 4},
-     {on_join, 3}, {on_part, 3}, {on_ctcp, 4}, {on_mode, 5}, {on_topic, 4},
-     {on_ping, 1}, {on_kick, 5}, {on_nick, 3}, {on_quit, 3}, {on_ctcp, 4},
-     {on_raw, 3}, {handle_call, 3}, {terminate, 2}].
+    [{init, 2}, {on_connect, 3}, {on_logon, 5}, {on_logon, 1}, {on_text, 4},
+     {on_server_notice, 3}, {on_notice, 4}, {on_join, 3}, {on_part, 3},
+     {on_ctcp, 4}, {on_mode, 5}, {on_topic, 4}, {on_ping, 1}, {on_kick, 5},
+     {on_nick, 3}, {on_quit, 3}, {on_ctcp, 4}, {on_raw, 3}, {handle_call, 3},
+     {terminate, 2}].
