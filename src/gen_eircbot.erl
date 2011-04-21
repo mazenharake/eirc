@@ -37,11 +37,11 @@
 -define(CTCP_TIME, "TIME  "++eirc_lib:ctcp_time(calendar:local_time())).
 -define(CTCP_PING(TS), "PING "++TS).
 
--define(MISSING_CALLBACKS, Cb == on_connect; Cb == on_text; Cb == on_notice; 
-	    Cb == on_join; Cb == on_part; Cb == on_mode; Cb == on_topic; 
-	    Cb == on_ping; Cb == on_kick; Cb == on_nick;
-	    Cb == on_raw; Cb == on_quit; Cb == handle_call; 
-	    Cb == terminate).
+-define(MISSING_CALLBACKS, Cb == on_connect; Cb == on_text; 
+	    Cb == on_server_notice; Cb == on_notice; Cb == on_join; 
+	    Cb == on_part; Cb == on_mode; Cb == on_topic; Cb == on_ping; 
+	    Cb == on_kick; Cb == on_nick; Cb == on_raw; Cb == on_quit; 
+	    Cb == handle_call; Cb == terminate).
 
 %% =============================================================================
 %% Application API
