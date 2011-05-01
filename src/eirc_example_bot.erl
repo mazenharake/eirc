@@ -22,7 +22,7 @@
 %% ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 %% POSSIBILITY OF SUCH DAMAGE.
 
-%% This is an example of a bot using the gen_eircbot
+%% This is an example of a bot using the gen_eircbot.
 -module(eirc_example_bot).
 
 -behaviour(gen_eircbot).

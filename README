@@ -44,4 +44,57 @@ POSSIBILITY OF SUCH DAMAGE.
 Just run make.
 
 == Example ==
-See the eirc_example_bot.erl on how to use.
+To run a client with a bot attached do the following:
+
+1) Compile
+    $ make
+
+2) Open a shell E.g. (from the eirc root dir).
+    $ erl -pa ../eirc/ebin
+
+3a) In the Erlang shell type (formatting for clarity):
+    > application:start(eirc).
+    ok
+
+    > {ok, Client} = eirc:start_client(mybot, [{bots, [{example_bot, eirc_example_bot, []}]}]).
+    Initiating bot...
+    {ok,<0.39.0>}
+
+3b) Another way of using using a bot is to install it
+    > {ok, Client} = eirc:start_client(mybot, []).
+    {ok,<0.39.0>}
+
+    > eirc:install_bot(mybot, example_bot, eirc_example_bot, []).
+    Initiating bot...
+    ok
+
+4) Connect the client and interact and what not   
+    > eirc:connect_and_logon(Client, "irc.freenode.net", 6667, "mazenharake").
+    Connected to "irc.freenode.net":6667
+    Logging in as "mazenharake"
+    ok
+    NOTICE ("zelazny.freenode.net"): ["*** Looking up your hostname..."]
+    NOTICE ("zelazny.freenode.net"): ["*** Checking Ident"]
+    NOTICE ("zelazny.freenode.net"): ["*** Found your hostname"]
+    NOTICE ("zelazny.freenode.net"): ["*** No Ident response"]
+    Login successful
+    RAW: "001"; ["eircbot","Welcome to the freenode Internet Relay Chat Network eircbot"]
+    ...
+    MODE: "eircbot" sets "+i" on "eircbot" (parameters: [])
+
+    > eirc:join(Client, "#asecretchannel").
+    ok
+    JOIN: "eircbot" joined "#asecretchannel"
+    MODE: undefined sets "+ns" on "#asecretchannel" (parameters: [[]])
+    RAW: "353"; ["eircbot","@","#asecretchannel","@eircbot"]
+    RAW: "366"; ["eircbot","#asecretchannel","End of /NAMES list."]
+
+    JOIN: "mazenharake" joined "#asecretchannel"
+
+    TEXT: From ("mazenharake") To ("#asecretchannel") - "Hello Bot!"
+
+5) Disconnect
+    > eirc:quit(Client, "The end of the road...").
+    QUIT: "eircbot" quit ("Client Quit")
+    RAW: "ERROR"; ["Closing Link: c-0af670d5.012-10-67626721.cust.bredbandsbolaget.se (Client Quit)"]
+    Bot terminating shutdown...
