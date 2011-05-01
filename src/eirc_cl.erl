@@ -36,6 +36,12 @@ start(Options) ->
 start_link(Options) ->
     gen_server:start_link(?MODULE, Options, []).
 
+install_bot(Client, BotId, CBMod, Args) ->
+    gen_server:call(Client, {install_bot, BotId, CBMod, Args}, infinity).
+
+uninstall_bot(Client, BotId) ->
+    gen_server:call(Client, {uninstall_bot, BotId}, infinity).
+
 stop(Client) ->
     gen_server:call(Client, stop).
 
@@ -84,10 +90,16 @@ add_handler(Client, Pid) ->
 remove_handler(Client, Pid) ->
     gen_server:call(Client, {remove_handler, Pid}).
 
+asynch_add_handler(Client, Pid) ->
+    gen_server:cast(Client, {add_handler, Pid}).
+
+asynch_remove_handler(Client, Pid) ->
+    gen_server:cast(Client, {remove_handler, Pid}).
+
 state(Client) ->
-    %% Don't expose the record because then people have to include your header
-    %% file when they compile, return a proplist instead and let them use that
     State = gen_server:call(Client, state),
+    ActiveBots = lists:map(fun({N,P,_,_}) -> {N, P, gen_eircbot:state(P)} end,
+			   supervisor:which_children(State#eirc_state.botsup)),
     [{server, State#eirc_state.server},
      {port, State#eirc_state.port},
      {nick, State#eirc_state.nick},
@@ -99,37 +111,34 @@ state(Client) ->
      {channels, eirc_chan:to_proplist(State#eirc_state.channels)},
      {network, State#eirc_state.network},
      {login_time, State#eirc_state.login_time},
-     {debug, State#eirc_state.debug}].
+     {debug, State#eirc_state.debug},
+     {event_handlers, State#eirc_state.event_handlers},
+     {botsup, State#eirc_state.botsup},
+     {bots, ActiveBots}].
 
 
 %% =============================================================================
 %% Behaviour callback API
 %% =============================================================================
-%% INIT
 init(Options) ->
-    Handlers = proplists:get_value(event_handlers, Options, []),
     Autoping = proplists:get_value(autoping, Options, true),
     Debug = proplists:get_value(debug, Options, false),
+    Handlers = proplists:get_value(event_handlers, Options, []),
+    Bots = proplists:get_value(bots, Options, []),
+    {ok, SupPid} = eirc_bot_sup:start_link(), 
+    lists:foreach(fun(BotSpec) -> start_bot(SupPid, BotSpec) end, Bots),
     NHandlers = lists:foldl(fun do_add_handler/2, [], Handlers),
     {ok, #eirc_state{ event_handlers = NHandlers, autoping = Autoping,
 		      logged_on = false, debug = Debug, 
-		      channels = eirc_chan:init() }}.
+		      channels = eirc_chan:init(), botsup = SupPid }}.
 
-%% CALLS
-handle_call({connect, Server, Port}, _From, State) ->
-    case gen_tcp:connect(Server, Port, [list, {packet, line}]) of
-	{ok, Socket} ->
-	    {reply, ok, State#eirc_state{ server = Server, port = Port, 
-					  socket = Socket } };
-	Error ->
-	    {reply, Error, State}
-    end;
+handle_call({install_bot, BotId, CBMod, Args}, _From, State) ->
+    start_bot(State#eirc_state.botsup, {BotId, CBMod, Args}),
+    {reply, ok, State};
 
-handle_call({logon, Pass, Nick, User, Name}, _From, #eirc_state{ logged_on = false } = State) ->
-    gen_tcp:send(State#eirc_state.socket, ?PASS(Pass)),
-    gen_tcp:send(State#eirc_state.socket, ?NICK(Nick)),
-    gen_tcp:send(State#eirc_state.socket, ?USER(User, Name)),
-    {reply, ok, State#eirc_state{ pass = Pass, nick = Nick, user = User, name = Name }};
+handle_call({uninstall_bot, BotId}, _From, State) ->
+    stop_bot(State#eirc_state.botsup, BotId),
+    {reply, ok, State};
 
 handle_call({add_handler, Pid}, _From, State) ->
     NHandlers = do_add_handler(Pid, State#eirc_state.event_handlers),
@@ -144,6 +153,23 @@ handle_call(state, _From, State) ->
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
+
+handle_call({connect, Server, Port}, _From, State) ->
+    case gen_tcp:connect(Server, Port, [list, {packet, line}]) of
+	{ok, Socket} ->
+	    send_event({connect, Server, Port}, State),
+	    {reply, ok, State#eirc_state{ server = Server, port = Port, 
+					  socket = Socket } };
+	Error ->
+	    {reply, Error, State}
+    end;
+
+handle_call({logon, Pass, Nick, User, Name}, _From, #eirc_state{ logged_on = false } = State) ->
+    gen_tcp:send(State#eirc_state.socket, ?PASS(Pass)),
+    gen_tcp:send(State#eirc_state.socket, ?NICK(Nick)),
+    gen_tcp:send(State#eirc_state.socket, ?USER(User, Name)),
+    send_event({logon, Pass, Nick, User, Name}, State),
+    {reply, ok, State#eirc_state{ pass = Pass, nick = Nick, user = User, name = Name }};
 
 handle_call(is_logged_on, _From, State) ->
     {reply, State#eirc_state.logged_on, State};
@@ -191,11 +217,14 @@ handle_call({chan_type, Channel}, _From, State) ->
 handle_call({chan_has_user, Channel, Nick}, _From, State) ->
     {reply, eirc_chan:chan_has_user(State#eirc_state.channels, Channel, Nick), State}.
 
-%% CAST
-handle_cast(_Cast, State) ->
-    {noreply, State}.
+handle_cast({add_handler, Pid}, State) ->
+    NHandlers = do_add_handler(Pid, State#eirc_state.event_handlers),
+    {noreply, State#eirc_state{ event_handlers = NHandlers }};
 
-%% INFO
+handle_cast({remove_handler, Pid}, State) ->
+    NHandlers = do_remove_handler(Pid, State#eirc_state.event_handlers),
+    {noreply, State#eirc_state{ event_handlers = NHandlers }}.
+
 handle_info({tcp_closed, _Socket}, State) ->
     {stop, normal, State};
 
@@ -220,10 +249,6 @@ handle_info({tcp, _, Data}, State) ->
 handle_info({'DOWN', _, _, Pid, _}, State) ->
     NHandlers = do_remove_handler(Pid, State#eirc_state.event_handlers),
     {noreply, State#eirc_state{ event_handlers = NHandlers }};
-
-handle_info(die, _) ->
-    exit(dying);
-
 handle_info(_, State) ->
     {noreply, State}.
 
@@ -336,6 +361,13 @@ send_event(Msg, #eirc_state{ event_handlers = Handlers })
 
 gv(Key, Options) -> proplists:get_value(Key, Options).
 gv(Key, Options, Default) -> proplists:get_value(Key, Options, Default).
+
+start_bot(SupPid, {BotId, CBMod, Args}) -> 
+    {ok, Pid} = eirc_bot_sup:start_bot(SupPid, BotId, CBMod, Args),
+    Pid.
+
+stop_bot(SupPid, BotId) ->
+    eirc_bot_sup:stop_bot(SupPid, BotId).
 
 do_add_handler(Pid, Handlers) ->
     case erlang:is_process_alive(Pid) andalso not lists:member(Pid, Handlers) of

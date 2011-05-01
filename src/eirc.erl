@@ -42,10 +42,26 @@ stop(_) ->
 %% Client API
 %% =============================================================================
 start_client(ClientId) ->
-    start_client(ClientId,[]).
+    start_client(ClientId, []).
 
 start_client(ClientId, Options) ->
     eirc_cl_sup:start_client(ClientId, Options).
+
+install_bot(ClientId, BotId, CBMod, Args) ->
+    case eirc_cl_sup:get_client(ClientId) of
+	undefined ->
+	    {error, no_client};
+	ClPid ->
+	    eirc_cl:install_bot(ClPid, BotId, CBMod, Args)
+    end.
+
+uninstall_bot(ClientId, BotId) ->
+    case eirc_cl_sup:get_client(ClientId) of
+	undefined ->
+	    {error, no_client};
+	ClPid ->
+	    eirc_cl:uninstall_bot(ClPid, BotId)
+    end. 
 
 stop_client(ClientId) ->
     eirc_cl_sup:stop_client(ClientId).

@@ -62,6 +62,7 @@ stop(QuitMsg) ->
 %% This is called to initialise a state and is before a connections is opened to
 %% the server
 init(Client, _Args) ->
+    process_flag(trap_exit, true),
     io:format("Initiating bot...~n"),
     {ok, #botstate{ cl = Client }}.
 

@@ -22,7 +22,7 @@
 %% ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 %% POSSIBILITY OF SUCH DAMAGE.
 
--module(eirc_cl_sup).
+-module(eirc_bot_sup).
 
 %% Supervisor API
 -compile(export_all).
@@ -33,32 +33,25 @@
 %% Supervisor API
 %% =============================================================================
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    supervisor:start_link(?MODULE, []).
 
-init(_) ->
-    Strategy = {one_for_one, 10, 10},
-    {ok, {Strategy, []}}.
+init(_) -> 
+    {ok, {{one_for_one, 10, 10}, []}}.
 
 %% =============================================================================
 %% Module Interface
 %% =============================================================================
-start_client(ClientId, Options) ->
-    Child = {ClientId, {eirc_cl, start_link, [Options]}, 
-	     transient, 6000, worker, [eirc_cl]},
-    supervisor:start_child(?MODULE, Child).
+start_bot(SupPid, BotId, CBMod, Args) ->
+    Child = {BotId, {gen_eircbot, start_link, [self(), CBMod, Args]}, 
+	     transient, 6000, worker, [gen_eircbot]},
+    supervisor:start_child(SupPid, Child).
 
-stop_client(ClientId) ->
-    case get_client(ClientId) of
-	undefined -> ok;
-	Pid ->
-	    ok = eirc_cl:stop(Pid),
-	    supervisor:delete_child(?MODULE, ClientId)
-    end.
+stop_bot(SupPid, BotId) ->
+    supervisor:terminate_child(SupPid, BotId),
+    supervisor:delete_child(SupPid, BotId).
 
-get_client(ClientId) ->
-    case lists:keyfind(ClientId, 1, supervisor:which_children(?MODULE)) of
-	{ClientId, Pid, _, _} -> Pid;
+get_bot(SupPid, BotId) ->
+    case lists:keyfind(BotId, 1, supervisor:which_children(SupPid)) of
+	{BotId, Pid, _, _} -> Pid;
 	false -> undefined
     end.
-	    
-    

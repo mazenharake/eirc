@@ -46,15 +46,13 @@
 %% =============================================================================
 %% Application API
 %% =============================================================================
-start_link(IpHost, Port, Nick, Options, Args) ->
-    CBMod = proplists:get_value(callback, Options),
-    InitArg = {CBMod, IpHost, Port, Nick, Options, Args},
-    case proplists:get_value(register, Options) of
-	undefined ->
-	    gen_server:start_link(?MODULE, InitArg, []);
-	Name ->
-	    gen_server:start_link(Name, ?MODULE, InitArg, [])
-    end.
+start_link(ClPid, Callback, InitArgs) ->
+    gen_server:start_link(?MODULE, {ClPid, Callback, InitArgs}, []).
+
+state(Server) ->
+    State = call(Server, {'$gen_eircbot', state}),
+    [{cbmod, State#st.cbmod},
+     {cbstate, State#st.cbstate}].
 
 call(Server, Msg) ->
     gen_server:call(Server, Msg).
@@ -62,31 +60,20 @@ call(Server, Msg) ->
 call(Server, Msg, Timeout) ->
     gen_server:call(Server, Msg, Timeout).
 
-init({CBMod, IpHost, Port, Nick, Options, Args}) ->
-    process_flag(trap_exit, true),
-    {ok, ClPid} = eirc_cl:start_link(Options),
-    eirc_cl:add_handler(ClPid, self()),
-    Pass = proplists:get_value(logon_pass, Options, "nopass"),
-    User = proplists:get_value(logon_user, Options, Nick),
-    Name = proplists:get_value(logon_name, Options, "No Name"),
-    {ok, State} = safe_callback({init, CBMod, [ClPid, Args]}, undefined),
-    ok = eirc_cl:connect(ClPid, IpHost, Port),
-    {ok, State2} = safe_callback({on_connect, [IpHost, Port]}, State),
-    ok = eirc_cl:logon(ClPid, Pass, Nick, User, Name),
-    {ok, _State3} = safe_callback({on_logon, [Pass, Nick, User, Name]}, State2).
+init({ClPid, Callback, InitArgs}) ->
+    eirc_cl:asynch_add_handler(ClPid, self()),
+    {ok, _State} = safe_callback({init, Callback, [ClPid, InitArgs]}, undefined).
 
+handle_call({'$gen_eircbot', state}, _From, State) ->
+    {reply, State, State};
 handle_call(Call, From, State) ->
     safe_callback({handle_call, [Call, From]}, State).
 	 
 handle_cast(_Cast, State) ->
     {no_reply, State}.
 
-handle_info(#ircmsg{} = IrcMsg, State) ->
-    safe_callback(IrcMsg, State);
-handle_info({'EXIT', Pid, normal}, #st{ clpid = Pid } = State) ->
-    {stop, normal, State};
-handle_info(_Msg, State) ->
-    {noreply, State}.
+handle_info(Message, State) ->
+    safe_callback(Message, State).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -102,7 +89,7 @@ safe_callback(Args, State) ->
 	    {stop, normal, NState};
 	throw:{stop, Reason, NState} ->
 	    {stop, Reason, NState};
-	error:undef ->
+	error:oundef ->
 	    case erlang:get_stacktrace() of
 		[{_, on_ctcp, _}|_] ->
 		    handle_default_ctcp(Args, State),
@@ -117,10 +104,10 @@ safe_callback(Args, State) ->
 
 get_call_tuple({init, CBMod, Args}, undefined) ->
     {CBMod, init, Args};
-get_call_tuple({on_connect, Args}, State) ->
-    {State, on_connect, Args};
-get_call_tuple({on_logon, Args}, State) ->
-    {State, on_logon, Args};
+get_call_tuple({connect, Server, Port}, State) ->
+    {State, on_connect, [Server, Port]};
+get_call_tuple({logon, Pass, Nick, User, Name}, State) ->
+    {State, on_logon, [Pass, Nick, User, Name]};
 get_call_tuple({handle_call, Args}, State) ->
     {State, handle_call, Args};
 get_call_tuple({terminate, Args}, State) ->
@@ -171,8 +158,10 @@ get_call_tuple(#ircmsg{ cmd = "QUIT" } = IrcMsg, State) ->
     Nick = IrcMsg#ircmsg.nick,
     QuitMsg = hd(IrcMsg#ircmsg.args),
     {State, on_quit, [Nick, QuitMsg]};
-get_call_tuple(IrcMsg, State) ->
-    {State, on_raw, IrcMsg}.
+get_call_tuple(#ircmsg{} = IrcMsg, State) ->
+    {State, on_raw, IrcMsg};
+get_call_tuple(Message, State) ->
+    {State, handle_info, [Message]}.
 
 handle_default_ctcp(#ircmsg{ cmd = "VERSION" } = IrcMsg, State) ->
     eirc_cl:msg(State#st.clpid, ctcp, IrcMsg#ircmsg.nick, ?CTCP_VERSION);
@@ -182,7 +171,6 @@ handle_default_ctcp(#ircmsg{ cmd = "PING", args = [Timestamp] } = IrcMsg, State)
     eirc_cl:msg(State#st.clpid, ctcp, IrcMsg#ircmsg.nick, ?CTCP_PING(Timestamp));
 handle_default_ctcp(#ircmsg{ cmd = Cmd } = IrcMsg, State) ->
     eirc_cl:msg(State#st.clpid, ctcp, IrcMsg#ircmsg.nick, Cmd++" N/A").
-
 
 callback({CBMod, init, [ClPid, Args]}) ->
     case erlang:apply(CBMod, init, [ClPid, Args]) of
@@ -194,14 +182,14 @@ callback({CBMod, init, [ClPid, Args]}) ->
 callback({State, on_connect, [IpHost, Port] = Args}) ->
     case erlang:apply(State#st.cbmod, on_connect, Args++[State#st.cbstate]) of
 	{ok, CBState} ->
-	    {ok, State#st{ cbstate = CBState, iphost = IpHost, port = Port }};
+	    {noreply, State#st{ cbstate = CBState, iphost = IpHost, port = Port }};
 	{stop, Reason, CBState} ->
 	    throw({stop, Reason, State#st{ cbstate = CBState }})
     end;
-callback({State, on_logon, [_Pass, _Nick, _User, _Name] = Args}) ->
+callback({State, on_logon, Args}) when length(Args) == 4 ->
     case erlang:apply(State#st.cbmod, on_logon, Args++[State#st.cbstate]) of
 	{ok, CBState} ->
-	    {ok, State#st{ cbstate = CBState }};
+	    {noreply, State#st{ cbstate = CBState }};
 	{stop, Reason, CBState} ->
 	    throw({stop, Reason, State#st{ cbstate = CBState }})
     end;
