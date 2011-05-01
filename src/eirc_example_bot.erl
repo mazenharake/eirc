@@ -22,9 +22,7 @@
 %% ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 %% POSSIBILITY OF SUCH DAMAGE.
 
-%% This is an example of a bot making use of the eirc library. It connects
-%% to chat.freenode.net and waits for commands. 
-
+%% This is an example of a bot using the gen_eircbot
 -module(eirc_example_bot).
 
 -behaviour(gen_eircbot).
@@ -34,7 +32,7 @@
 -export([init/2, on_connect/3, on_logon/5, on_logon/1, on_text/4,
 	 on_server_notice/3, on_notice/4, on_join/3, on_part/3, on_ctcp/4,
 	 on_mode/5, on_topic/4, on_ping/1, on_nick/3, on_raw/3, on_kick/5,
-	 on_quit/3, handle_call/3, terminate/2]).
+	 on_quit/3, handle_call/3, handle_info/2, terminate/2]).
 
 -compile(export_all).
 
@@ -42,23 +40,13 @@
 
 -define(VERSION, "EIRC Example Bot 0.2").
 
-%% Starts an IRC client and initialises this bot as the callback
-start_link(IpHost, Port, Nick, _Options, Args) ->
-    application:start(eirc), 
-    Options = [{register, {local, ?MODULE}}, {callback, ?MODULE}], 
-    gen_eircbot:start_link(IpHost, Port, Nick, Options, Args).
+%% =============================================================================
+%% Module API
+%% =============================================================================
 
-%% Commands to control the bot from the shell.
-print_state() ->
-    gen_eircbot:call(?MODULE, print_state).
-
-msg(To, Msg) ->
-    gen_eircbot:call(?MODULE, {msg, To, Msg}).
-
-stop(QuitMsg) ->
-    gen_eircbot:call(?MODULE, {stop, QuitMsg}).
-
-%% eIRCbot callbacks
+%% =============================================================================
+%% Callbacks
+%% =============================================================================
 %% This is called to initialise a state and is before a connections is opened to
 %% the server
 init(Client, _Args) ->
@@ -170,17 +158,13 @@ on_raw(Cmd, Args, State) ->
     io:format("RAW: ~p; ~1000p~n",[Cmd, Args]),
     {ok, State}.
 
-handle_call({msg, To, Msg}, _From, State) ->
-    eirc:privmsg(State#botstate.cl, To, Msg),
-    {reply, ok, State};
-handle_call(print_state, _From, State) ->
-    CState = eirc:state(State#botstate.cl),
-    io:format("IRC Client State: ~n~p~n",[CState]),
-    {reply, ok, State};
-handle_call({stop, QuitMsg}, _From, State) ->
-    io:format("Stopping bot...~n"),
-    eirc:quit(State#botstate.cl, QuitMsg),
-    {stop, normal, ok, State}.
+handle_call(Call, _From, State) ->
+    io:format("Unknown call: ~p ~n", [Call]),
+    {reply, ok, State}.
+
+handle_info(Msg, State) ->
+    io:format("Unknown message: ~p ~n", [Msg]),
+    {ok, State}.
 
 terminate(Reason, _State) ->
     io:format("Bot terminating ~p...~n", [Reason]),
