@@ -89,7 +89,7 @@ safe_callback(Args, State) ->
 	    {stop, normal, NState};
 	throw:{stop, Reason, NState} ->
 	    {stop, Reason, NState};
-	error:oundef ->
+	error:undef ->
 	    case erlang:get_stacktrace() of
 		[{_, on_ctcp, _}|_] ->
 		    handle_default_ctcp(Args, State),
@@ -234,4 +234,4 @@ behaviour_info(callbacks) ->
      {on_server_notice, 3}, {on_notice, 4}, {on_join, 3}, {on_part, 3},
      {on_ctcp, 4}, {on_mode, 5}, {on_topic, 4}, {on_ping, 1}, {on_kick, 5},
      {on_nick, 3}, {on_quit, 3}, {on_ctcp, 4}, {on_raw, 3}, {handle_call, 3},
-     {terminate, 2}].
+     {handle_info, 2}, {terminate, 2}].
