@@ -25,7 +25,7 @@
 %% Records
 -record(eirc_state, { 
 	  event_handlers = [], server, port, socket, nick, pass, user, name,
-	  logged_on, autoping, chprefix, network, usrprefix, login_time,
+	  logged_on = false, autoping, chprefix, network, usrprefix, login_time,
 	  botsup, channels, debug
 	 }).
 

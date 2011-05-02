@@ -226,7 +226,12 @@ handle_cast({remove_handler, Pid}, State) ->
     {noreply, State#eirc_state{ event_handlers = NHandlers }}.
 
 handle_info({tcp_closed, _Socket}, State) ->
-    {stop, normal, State};
+    io:format("Connection closed!~n"),
+    {noreply, #eirc_state{ autoping = State#eirc_state.autoping,
+			   debug = State#eirc_state.debug,
+			   event_handlers = State#eirc_state.event_handlers,
+			   botsup = State#eirc_state.botsup,
+			   channels = eirc_chan:init() }};
 
 handle_info({tcp_error, Socket}, State) ->
     {stop, {tcp_error, Socket}, State};
@@ -344,9 +349,6 @@ handle_data(#ircmsg{ cmd = "PING" } = Msg, #eirc_state{ autoping = true } = Stat
 	    gen_tcp:send(State#eirc_state.socket, ?PONG1(State#eirc_state.nick))
     end,
     {noreply, State};
-
-handle_data(#ircmsg{ cmd = "ERROR", args = ["Closing Link"++_] }, State) ->
-    {stop, normal, State};
 
 %% "catch-all", period. (DEV)
 handle_data(_Msg, State) ->
