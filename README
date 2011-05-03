@@ -95,6 +95,12 @@ To run a client with a bot attached do the following:
 
 5) Disconnect
     > eirc:quit(Client, "The end of the road...").
-    QUIT: "eircbot" quit ("Client Quit")
+    ok
+    QUIT: "mazenharake" quit ("Client Quit")
     RAW: "ERROR"; ["Closing Link: c-0af670d5.012-10-67626721.cust.bredbandsbolaget.se (Client Quit)"]
-    Bot terminating shutdown...
+    Connection closed!
+
+6) Reconnect or... shutdown the client
+   > eirc:stop_client(mybot).
+   Bot terminating shutdown...
+   ok
