@@ -54,6 +54,9 @@ logon(Client, Pass, Nick, User, Name) ->
 msg(Client, Type, Nick, Msg) ->
     gen_server:call(Client, {msg, Type, Nick, Msg}, infinity).
 
+nick(Client, NewNick) ->
+    gen_server:call(Client, {nick, NewNick}, infinity).
+
 cmd(Client, RawCmd) ->
     gen_server:call(Client, {cmd, RawCmd}).
 
@@ -196,6 +199,10 @@ handle_call({join, Channel, Key}, _From, State) ->
 
 handle_call({part, Channel}, _From, State) ->
     gen_tcp:send(State#eirc_state.socket, ?PART(Channel)),
+    {reply, ok, State};
+
+handle_call({nick, NewNick}, _From, State) ->
+    gen_tcp:send(State#eirc_state.socket, ?NICK(NewNick)),
     {reply, ok, State};
 
 handle_call({cmd, RawCmd}, _From, State) ->

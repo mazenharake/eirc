@@ -96,6 +96,9 @@ notice(Client, Nick, Msg) ->
 ctcp(Client, Nick, Msg) ->
     eirc_cl:msg(Client, ctcp, Nick, Msg).
 
+nick(Client, NewNick) ->
+    eirc_cl:nick(Client, NewNick).
+
 cmd(Client, RawCmd) ->
     eirc_cl:cmd(Client, RawCmd).
 
